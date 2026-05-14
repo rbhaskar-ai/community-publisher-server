@@ -209,18 +209,18 @@ function splitIntoChunks(text, maxLen = 470) {
   return chunks.filter(c => c.trim());
 }
 
-async function myMemoryTranslate(text, langCode) {
-  const chunks = splitIntoChunks(text, 470);
-
+async function googleTranslate(text, langCode) {
+  const chunks = splitIntoChunks(text, 4500);
   const translated = [];
   for (const chunk of chunks) {
-    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(chunk)}&langpair=en|${langCode}`;
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${langCode}&dt=t&q=${encodeURIComponent(chunk)}`;
     const r = await fetch(url);
+    if (!r.ok) throw new Error(`Google Translate HTTP ${r.status}`);
     const d = await r.json();
-    if (d.responseStatus !== 200) throw new Error(`MyMemory error: ${d.responseDetails || d.responseStatus}`);
-    translated.push(d.responseData.translatedText);
+    const result = (d[0] || []).map(c => c[0] || "").join("");
+    translated.push(result);
   }
-  return translated.join("\n\n");
+  return translated.join(" ");
 }
 
 app.post("/proxy/translate", async (req, res) => {
@@ -231,8 +231,8 @@ app.post("/proxy/translate", async (req, res) => {
   try {
     console.log(`→ translate [${targetLang}/${langCode}] "${title.substring(0, 40)}…"`);
     const [translatedTitle, translatedBody] = await Promise.all([
-      myMemoryTranslate(title, langCode),
-      myMemoryTranslate(body, langCode),
+      googleTranslate(title, langCode),
+      googleTranslate(body, langCode),
     ]);
     console.log(`← translate [${targetLang}] done`);
     res.json({ title: translatedTitle, body: translatedBody });
@@ -404,28 +404,19 @@ app.post("/widget", async (req, res) => {
       return res.json({ url, ...data });
     }
 
-    // ── translate — AI only, no MyMemory ──
+    // ── translate — Google Translate (free, no key) ──
     if (action === "translate") {
       if (!p.targetLang || !p.title || !p.body) return res.status(400).json({ error:"targetLang, title and body required" });
-      console.log(`→ translate [${p.targetLang}] "${p.title.substring(0,40)}" (${p.body.length} chars)`);
+      const langCode = LANG_CODES[p.targetLang];
+      if (!langCode) return res.status(400).json({ error:`Unknown language: ${p.targetLang}` });
+      console.log(`→ translate [${p.targetLang}/${langCode}] "${p.title.substring(0,40)}" (${p.body.length} chars)`);
       try {
-        const prompt = [
-          `Translate the following article from English to ${p.targetLang}.`,
-          `Return ONLY a raw JSON object — no markdown, no code fences, no explanation.`,
-          `JSON must have exactly two string fields: "title" and "body".`,
-          `Preserve any [IMG0] [IMG1] etc. tokens exactly as-is.`,
-          ``,
-          `Title: ${p.title}`,
-          ``,
-          `Body:`,
-          p.body
-        ].join("\n");
-        const raw = await callAI(prompt);
-        // Strip any accidental markdown fences before parsing
-        const clean = raw.trim().replace(/^```(?:json)?\s*/,"").replace(/\s*```$/,"");
-        const result = JSON.parse(clean);
+        const [txTitle, txBody] = await Promise.all([
+          googleTranslate(p.title, langCode),
+          googleTranslate(p.body, langCode),
+        ]);
         console.log(`← translate [${p.targetLang}] done`);
-        return res.json({ title: result.title || p.title, body: result.body || p.body });
+        return res.json({ title: txTitle || p.title, body: txBody || p.body });
       } catch(e) {
         console.error(`translate error:`, e.message);
         return res.status(500).json({ error: `Translation failed: ${e.message}` });
