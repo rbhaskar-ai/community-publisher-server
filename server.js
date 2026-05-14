@@ -209,8 +209,27 @@ function splitIntoChunks(text, maxLen = 470) {
   return chunks.filter(c => c.trim());
 }
 
+function splitHtmlChunks(html, maxLen = 4500) {
+  if (html.length <= maxLen) return [html];
+  // Split before block-level opening tags so each chunk is complete elements
+  const segments = html.split(/(?=<(?:p|h[1-6]|li|blockquote|div|pre|ul|ol)\b)/i);
+  const chunks = [];
+  let current = "";
+  for (const seg of segments) {
+    if (current.length + seg.length > maxLen && current.length > 0) {
+      chunks.push(current);
+      current = seg;
+    } else {
+      current += seg;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 async function googleTranslate(text, langCode) {
-  const chunks = splitIntoChunks(text, 4500);
+  const isHtml = /<[^>]+>/.test(text);
+  const chunks = isHtml ? splitHtmlChunks(text) : splitIntoChunks(text, 4500);
   const translated = [];
   for (const chunk of chunks) {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${langCode}&dt=t&q=${encodeURIComponent(chunk)}`;
@@ -220,7 +239,7 @@ async function googleTranslate(text, langCode) {
     const result = (d[0] || []).map(c => c[0] || "").join("");
     translated.push(result);
   }
-  return translated.join(" ");
+  return translated.join(isHtml ? "" : " ");
 }
 
 app.post("/proxy/translate", async (req, res) => {
