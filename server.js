@@ -26,35 +26,109 @@ app.get("/community-publisher-agent.html", (req, res) => {
   res.sendFile(path.join(__dirname, "community-publisher-agent (2).html"));
 });
 
-// ── Health check ──────────────────────────────────────────────────────────────
-const AI_KEY = process.env.ANTHROPIC_API_KEY;
-const AI_ENABLED = !!(AI_KEY && !AI_KEY.includes("paste-your-key"));
-app.get("/health", (_, res) => res.json({ status: "ok", port: PORT, aiEnabled: AI_ENABLED }));
+// ── AI provider setup ─────────────────────────────────────────────────────────
+const crypto = require("crypto");
+
+const AI_KEY      = process.env.ANTHROPIC_API_KEY;
+const AI_ENABLED  = !!(AI_KEY && !AI_KEY.includes("paste-your-key"));
+
+const VERTEX_SA   = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+const VERTEX_PROJ = process.env.GOOGLE_PROJECT_ID;
+const VERTEX_LOC  = process.env.VERTEX_LOCATION || "us-central1";
+const VERTEX_MODEL= process.env.VERTEX_MODEL    || "gemini-1.5-flash";
+const VERTEX_ENABLED = !!(VERTEX_SA && VERTEX_PROJ);
+
+// Token cache for Vertex AI (1-hour tokens)
+let _vtok = { token: null, exp: 0 };
+async function vertexToken() {
+  if (_vtok.token && Date.now() < _vtok.exp) return _vtok.token;
+  const creds = JSON.parse(VERTEX_SA);
+  const now   = Math.floor(Date.now() / 1000);
+  const hdr   = Buffer.from(JSON.stringify({ alg:"RS256", typ:"JWT" })).toString("base64url");
+  const pay   = Buffer.from(JSON.stringify({
+    iss: creds.client_email,
+    scope: "https://www.googleapis.com/auth/cloud-platform",
+    aud:  "https://oauth2.googleapis.com/token",
+    iat:  now, exp: now + 3600
+  })).toString("base64url");
+  const sig = crypto.createSign("RSA-SHA256").update(`${hdr}.${pay}`).sign(creds.private_key, "base64url");
+  const jwt = `${hdr}.${pay}.${sig}`;
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body: new URLSearchParams({ grant_type:"urn:ietf:params:oauth:grant-type:jwt-bearer", assertion:jwt })
+  });
+  const d = await r.json();
+  if (!d.access_token) throw new Error(`Vertex auth failed: ${JSON.stringify(d)}`);
+  _vtok = { token: d.access_token, exp: Date.now() + 3500000 };
+  console.log("✅ Vertex AI token refreshed");
+  return _vtok.token;
+}
+
+async function generateWithVertex(userContent) {
+  const token = await vertexToken();
+  const url = `https://${VERTEX_LOC}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJ}/locations/${VERTEX_LOC}/publishers/google/models/${VERTEX_MODEL}:generateContent`;
+  const r = await fetch(url, {
+    method:"POST",
+    headers:{ Authorization:`Bearer ${token}`, "Content-Type":"application/json" },
+    body: JSON.stringify({
+      contents:[{ role:"user", parts:[{ text: userContent }] }],
+      generationConfig:{ maxOutputTokens:1500, temperature:0.7 }
+    })
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
+  return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+
+async function generateWithAnthropic(userContent) {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method:"POST",
+    headers:{ "x-api-key":AI_KEY, "anthropic-version":"2023-06-01", "content-type":"application/json" },
+    body: JSON.stringify({ model:"claude-haiku-4-5-20251001", max_tokens:1500,
+      messages:[{ role:"user", content: userContent }] })
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
+  return d.content?.[0]?.text || "";
+}
+
+app.get("/health", (_, res) => res.json({
+  status:"ok", port:PORT,
+  ai: VERTEX_ENABLED ? "vertex" : AI_ENABLED ? "anthropic" : "disabled"
+}));
+
+// ── shared generate helper ────────────────────────────────────────────────────
+async function runGenerate(prompt, url) {
+  if (!VERTEX_ENABLED && !AI_ENABLED) throw new Error("No AI provider configured. Add GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_PROJECT_ID or ANTHROPIC_API_KEY.");
+  const instruction = "Line 1 = plain title (no # prefix). Then 4–6 paragraphs. Plain text, no markdown. 400–600 words. Practical and educational.";
+  let content;
+  if (url) {
+    const pageRes = await fetch(url, { headers:{ "User-Agent":"Mozilla/5.0 (compatible; CommunityPublisher/1.0)" } });
+    const html = await pageRes.text();
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi," ").replace(/<style[\s\S]*?<\/style>/gi," ")
+      .replace(/<[^>]+>/g," ").replace(/&nbsp;/g," ").replace(/&amp;/g,"&")
+      .replace(/\s+/g," ").trim().substring(0, 6000);
+    content = `Based on this content from ${url}:\n\n${text}\n\n${prompt || "Write a community article summarising the key insights."}\n\n${instruction}`;
+    console.log(`→ generate from URL (${text.length} chars)`);
+  } else {
+    content = `Write a community article about: ${prompt}. ${instruction}`;
+    console.log(`→ generate: "${prompt.substring(0,60)}"`);
+  }
+  const raw = VERTEX_ENABLED ? await generateWithVertex(content) : await generateWithAnthropic(content);
+  const lines = raw.trim().split("\n").filter(l => l.trim());
+  const title = lines[0].replace(/^[#*\s]+/,"").trim();
+  const body  = lines.slice(1).join("\n\n").trim();
+  console.log(`← generate done: "${title.substring(0,50)}"`);
+  return { title, body };
+}
 
 // ── POST /proxy/generate ──────────────────────────────────────────────────────
 app.post("/proxy/generate", async (req, res) => {
-  if (!AI_ENABLED) return res.status(503).json({ error: "AI generation not configured. Add ANTHROPIC_API_KEY to .env" });
-  const { prompt } = req.body;
-  if (!prompt) return res.status(400).json({ error: "prompt required" });
+  const { prompt, url } = req.body;
+  if (!prompt && !url) return res.status(400).json({ error: "prompt or url required" });
   try {
-    console.log(`→ generate: "${prompt.substring(0, 60)}…"`);
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "x-api-key": AI_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 1500,
-        messages: [{ role: "user", content: `Write a community article about: ${prompt}. Start with a plain title on line 1 (no # prefix). Then write 4–6 paragraphs of body content. Plain text, no markdown. 400–600 words. Practical and educational.` }]
-      })
-    });
-    const data = await r.json();
-    if (!r.ok) return res.status(r.status).json({ error: data.error?.message || JSON.stringify(data) });
-    const text = data.content[0].text.trim();
-    const lines = text.split("\n").filter(l => l.trim());
-    const title = lines[0].replace(/^#+\s*/, "").replace(/^\*+\s*/, "").trim();
-    const body = lines.slice(1).join("\n\n").trim();
-    console.log(`← generate done: "${title.substring(0, 50)}"`);
-    res.json({ title, body });
+    res.json(await runGenerate(prompt, url));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -297,45 +371,12 @@ app.post("/widget", async (req, res) => {
 
     // ── generate ──
     if (action === "generate") {
-      if (!AI_ENABLED) return res.status(503).json({ error:"Add ANTHROPIC_API_KEY to .env to enable AI generation" });
       if (!p.prompt && !p.url) return res.status(400).json({ error:"prompt or url required" });
-
-      let contextText = "";
-      if (p.url) {
-        try {
-          console.log(`→ fetching URL: ${p.url}`);
-          const pageRes = await fetch(p.url, {
-            headers: { "User-Agent": "Mozilla/5.0 (compatible; CommunityPublisher/1.0)" }
-          });
-          const html = await pageRes.text();
-          contextText = html
-            .replace(/<script[\s\S]*?<\/script>/gi, " ")
-            .replace(/<style[\s\S]*?<\/style>/gi, " ")
-            .replace(/<[^>]+>/g, " ")
-            .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-            .replace(/\s+/g, " ").trim()
-            .substring(0, 6000);
-          console.log(`← fetched ${contextText.length} chars from URL`);
-        } catch (e) {
-          return res.status(400).json({ error: `Could not fetch URL: ${e.message}` });
-        }
+      try {
+        return res.json(await runGenerate(p.prompt, p.url));
+      } catch(e) {
+        return res.status(500).json({ error: e.message });
       }
-
-      const instruction = "Line 1 = plain title (no # prefix). Then 4-6 paragraphs. Plain text, no markdown. 400-600 words.";
-      const userContent = contextText
-        ? `Based on this content from ${p.url}:\n\n${contextText}\n\n${p.prompt || "Write a community article summarizing the key insights."}\n\n${instruction}`
-        : `Write a community article about: ${p.prompt}. ${instruction}`;
-
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{ "x-api-key":AI_KEY, "anthropic-version":"2023-06-01", "content-type":"application/json" },
-        body: JSON.stringify({ model:"claude-haiku-4-5-20251001", max_tokens:1500,
-          messages:[{ role:"user", content: userContent }] })
-      });
-      const data = await r.json();
-      if (!r.ok) return res.status(r.status).json({ error:data.error?.message||JSON.stringify(data) });
-      const lines = data.content[0].text.trim().split("\n").filter(l=>l.trim());
-      return res.json({ title:lines[0].replace(/^[#*\s]+/,"").trim(), body:lines.slice(1).join("\n\n").trim() });
     }
 
     return res.status(400).json({ error:`Unknown action: ${action}` });
