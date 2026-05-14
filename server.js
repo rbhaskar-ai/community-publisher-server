@@ -450,27 +450,41 @@ app.post("/widget", async (req, res) => {
       if (!r.ok) return res.status(400).json({ error: `Could not fetch URL: HTTP ${r.status}` });
       const raw = await r.text();
 
-      // Extract article body — try progressively broader selectors
-      let html = "";
-      const try_ = (re) => { const m = raw.match(re); return m ? m[0] : null; };
+      // Properly extract a div by class fragment, tracking nesting depth
+      function extractDiv(html, classFragment) {
+        const idx = html.indexOf(classFragment);
+        if (idx === -1) return null;
+        const tagStart = html.lastIndexOf("<div", idx);
+        if (tagStart === -1) return null;
+        const contentStart = html.indexOf(">", tagStart) + 1;
+        let depth = 1, pos = contentStart;
+        while (depth > 0 && pos < html.length) {
+          const nextOpen  = html.indexOf("<div",  pos);
+          const nextClose = html.indexOf("</div>", pos);
+          if (nextClose === -1) break;
+          if (nextOpen !== -1 && nextOpen < nextClose) { depth++; pos = nextOpen + 4; }
+          else { depth--; if (depth === 0) return html.substring(contentStart, nextClose); pos = nextClose + 6; }
+        }
+        return null;
+      }
 
-      html = try_(/<div[^>]*class="[^"]*lia-message-body-content[^"]*"[^>]*>([\s\S]*?)<\/div>\s*(?=<\/div>)/i)
-          || try_(/<div[^>]*class="[^"]*article[- ]body[^"]*"[^>]*>([\s\S]*?)<\/div>/i)
-          || try_(/<article[^>]*>([\s\S]*?)<\/article>/i)
-          || try_(/<main[^>]*>([\s\S]*?)<\/main>/i)
-          || "";
+      // Try inSided/Khoros class names first, then generic HTML5 elements
+      let html = extractDiv(raw, "lia-message-body-content")
+              || extractDiv(raw, "article-body")
+              || extractDiv(raw, "post-content")
+              || extractDiv(raw, "entry-content")
+              || (() => { const m = raw.match(/<article[^>]*>([\s\S]*?)<\/article>/i); return m ? m[1] : null; })()
+              || null;
 
-      if (!html) return res.status(400).json({ error: "Could not locate article body in page. Try pasting the HTML manually." });
+      if (!html) return res.status(400).json({ error: "Could not locate article body. The page may require login or use an unsupported layout. Try pasting the HTML manually." });
 
-      // Strip scripts, styles, nav, share bars
+      // Strip scripts and styles only — preserve all content formatting
       html = html
         .replace(/<script[\s\S]*?<\/script>/gi, "")
         .replace(/<style[\s\S]*?<\/style>/gi, "")
-        .replace(/<nav[\s\S]*?<\/nav>/gi, "")
-        .replace(/\s+/g, " ")
         .trim();
 
-      console.log(`← fetch-article: ${html.length} chars`);
+      console.log(`← fetch-article: ${html.length} chars extracted`);
       return res.json({ html });
     }
 
