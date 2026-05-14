@@ -404,33 +404,31 @@ app.post("/widget", async (req, res) => {
       return res.json({ url, ...data });
     }
 
-    // ── translate ──
-    // Uses AI if a provider is configured (no size limit, higher quality).
-    // Falls back to MyMemory (free, 500 char/chunk limit) if no AI key is set.
+    // ── translate — AI only, no MyMemory ──
     if (action === "translate") {
       if (!p.targetLang || !p.title || !p.body) return res.status(400).json({ error:"targetLang, title and body required" });
-      console.log(`→ translate [${p.targetLang}] "${p.title.substring(0,40)}" (${p.body.length} chars) via ${AI_PROVIDER}`);
+      console.log(`→ translate [${p.targetLang}] "${p.title.substring(0,40)}" (${p.body.length} chars)`);
       try {
-        if (AI_PROVIDER !== "disabled") {
-          // AI translation — handles up to 100 000 chars, preserves [IMG0] placeholders
-          const prompt = `Translate the following article from English to ${p.targetLang}.\nReturn ONLY a valid JSON object with exactly two fields: "title" (string) and "body" (string).\nPreserve any [IMG0], [IMG1], [IMG2] etc. tokens exactly as-is — do not translate or remove them.\nDo not add markdown, code fences, or any explanation.\n\nTitle: ${p.title}\n\nBody:\n${p.body}`;
-          const raw = await callAI(prompt);
-          const json = JSON.parse(raw.trim().replace(/^```json\s*/,"").replace(/\s*```$/,""));
-          console.log(`← translate [${p.targetLang}] AI done`);
-          return res.json({ title: json.title || p.title, body: json.body || p.body });
-        } else {
-          // MyMemory fallback — free but limited to 500 chars per chunk
-          const langCode = LANG_CODES[p.targetLang];
-          if (!langCode) return res.status(400).json({ error:`Unknown language: ${p.targetLang}` });
-          const [title, body] = await Promise.all([
-            myMemoryTranslate(p.title, langCode),
-            myMemoryTranslate(p.body,  langCode),
-          ]);
-          console.log(`← translate [${p.targetLang}] MyMemory done`);
-          return res.json({ title, body });
-        }
+        const prompt = [
+          `Translate the following article from English to ${p.targetLang}.`,
+          `Return ONLY a raw JSON object — no markdown, no code fences, no explanation.`,
+          `JSON must have exactly two string fields: "title" and "body".`,
+          `Preserve any [IMG0] [IMG1] etc. tokens exactly as-is.`,
+          ``,
+          `Title: ${p.title}`,
+          ``,
+          `Body:`,
+          p.body
+        ].join("\n");
+        const raw = await callAI(prompt);
+        // Strip any accidental markdown fences before parsing
+        const clean = raw.trim().replace(/^```(?:json)?\s*/,"").replace(/\s*```$/,"");
+        const result = JSON.parse(clean);
+        console.log(`← translate [${p.targetLang}] done`);
+        return res.json({ title: result.title || p.title, body: result.body || p.body });
       } catch(e) {
-        return res.status(500).json({ error: e.message });
+        console.error(`translate error:`, e.message);
+        return res.status(500).json({ error: `Translation failed: ${e.message}` });
       }
     }
 
@@ -454,11 +452,9 @@ app.post("/widget", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`\n✅ Proxy running — open this in your browser:`);
   console.log(`   http://localhost:${PORT}`);
-  if (AI_ENABLED) {
-    console.log(`✅ AI generation enabled (ANTHROPIC_API_KEY loaded)`);
-  } else {
-    console.log(`ℹ️  AI generation disabled (optional) — to enable:`);
-    console.log(`   Add ANTHROPIC_API_KEY=sk-ant-... to .env`);
+  console.log(`✅ AI provider: ${AI_PROVIDER} (generation + translation)`);
+  if (AI_PROVIDER === "disabled") {
+    console.log(`⚠️  No AI key found — add ANTHROPIC_API_KEY to environment`);
   }
   console.log("");
 });
