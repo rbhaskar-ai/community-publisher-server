@@ -27,13 +27,9 @@ app.get("/community-publisher-agent.html", (req, res) => {
 });
 
 // ── AI provider setup ─────────────────────────────────────────────────────────
-// Priority: GEMINI_API_KEY (AI Studio, free) → ANTHROPIC_API_KEY → Vertex AI
-// To switch provider: set the relevant env var in Render, remove/leave the others blank.
+// Active provider: ANTHROPIC_API_KEY (default) → Vertex AI (enterprise)
+// To switch to Vertex later: set GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_PROJECT_ID
 const crypto = require("crypto");
-
-const GEMINI_KEY     = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL   = process.env.GEMINI_MODEL || "gemini-1.5-flash";
-const GEMINI_ENABLED = !!(GEMINI_KEY);
 
 const ANTHROPIC_KEY     = process.env.ANTHROPIC_API_KEY;
 const ANTHROPIC_ENABLED = !!(ANTHROPIC_KEY && !ANTHROPIC_KEY.includes("paste-your-key"));
@@ -44,7 +40,7 @@ const VERTEX_LOC     = process.env.VERTEX_LOCATION || "us-central1";
 const VERTEX_MODEL   = process.env.VERTEX_MODEL    || "gemini-1.5-flash";
 const VERTEX_ENABLED = !!(VERTEX_SA && VERTEX_PROJ);
 
-const AI_PROVIDER = GEMINI_ENABLED ? "gemini" : ANTHROPIC_ENABLED ? "anthropic" : VERTEX_ENABLED ? "vertex" : "disabled";
+const AI_PROVIDER = ANTHROPIC_ENABLED ? "anthropic" : VERTEX_ENABLED ? "vertex" : "disabled";
 
 // Vertex token cache
 let _vtok = { token: null, exp: 0 };
@@ -69,24 +65,11 @@ async function vertexToken() {
 }
 
 async function callAI(userContent) {
-  if (GEMINI_ENABLED) {
-    // Google AI Studio — free tier, simple API key
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
-    const r = await fetch(url, {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ contents:[{ parts:[{ text:userContent }] }],
-        generationConfig:{ maxOutputTokens:1500, temperature:0.7 } })
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
-    return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  }
   if (ANTHROPIC_ENABLED) {
-    // Anthropic Claude
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method:"POST",
       headers:{ "x-api-key":ANTHROPIC_KEY, "anthropic-version":"2023-06-01", "content-type":"application/json" },
-      body: JSON.stringify({ model:"claude-haiku-4-5-20251001", max_tokens:1500,
+      body: JSON.stringify({ model:"claude-haiku-4-5-20251001", max_tokens:4096,
         messages:[{ role:"user", content:userContent }] })
     });
     const d = await r.json();
@@ -94,19 +77,18 @@ async function callAI(userContent) {
     return d.content?.[0]?.text || "";
   }
   if (VERTEX_ENABLED) {
-    // Google Vertex AI — service account auth
     const token = await vertexToken();
     const url = `https://${VERTEX_LOC}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJ}/locations/${VERTEX_LOC}/publishers/google/models/${VERTEX_MODEL}:generateContent`;
     const r = await fetch(url, {
       method:"POST", headers:{ Authorization:`Bearer ${token}`, "Content-Type":"application/json" },
       body: JSON.stringify({ contents:[{ role:"user", parts:[{ text:userContent }] }],
-        generationConfig:{ maxOutputTokens:1500, temperature:0.7 } })
+        generationConfig:{ maxOutputTokens:4096, temperature:0.7 } })
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
     return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
-  throw new Error("No AI provider configured. Set GEMINI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_PROJECT_ID in environment.");
+  throw new Error("No AI provider configured. Add ANTHROPIC_API_KEY to Render environment.");
 }
 
 app.get("/health", (_, res) => res.json({ status:"ok", port:PORT, ai:AI_PROVIDER }));
