@@ -194,22 +194,41 @@ const LANG_CODES = {
   "Korean": "ko", "Simplified Chinese": "zh-CN",
 };
 
-async function myMemoryTranslate(text, langCode) {
-  // Split into chunks ≤ 490 chars on paragraph or sentence boundaries
+function splitIntoChunks(text, maxLen = 470) {
   const chunks = [];
-  const paragraphs = text.split(/\n+/);
+  // Split at sentence endings, then fall back to word boundaries
+  const sentences = text.match(/[^.!?\n]+[.!?\n]+\s*|[^.!?\n]+$/g) || [text];
   let current = "";
-  for (const para of paragraphs) {
-    const line = para.trim();
-    if (!line) { current += "\n\n"; continue; }
-    if ((current + line).length > 490) {
-      if (current.trim()) chunks.push(current.trim());
-      current = line + "\n\n";
+  for (const sentence of sentences) {
+    const s = sentence.replace(/\s+/g, " ").trim();
+    if (!s) continue;
+    if ((current + " " + s).trim().length <= maxLen) {
+      current = (current + " " + s).trim();
     } else {
-      current += line + "\n\n";
+      if (current) chunks.push(current);
+      if (s.length <= maxLen) {
+        current = s;
+      } else {
+        // Single sentence too long — split by words
+        const words = s.split(" ");
+        current = "";
+        for (const word of words) {
+          if ((current + " " + word).trim().length > maxLen) {
+            if (current) chunks.push(current);
+            current = word;
+          } else {
+            current = (current + " " + word).trim();
+          }
+        }
+      }
     }
   }
-  if (current.trim()) chunks.push(current.trim());
+  if (current) chunks.push(current);
+  return chunks.filter(c => c.trim());
+}
+
+async function myMemoryTranslate(text, langCode) {
+  const chunks = splitIntoChunks(text, 470);
 
   const translated = [];
   for (const chunk of chunks) {
