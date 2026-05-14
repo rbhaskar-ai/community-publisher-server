@@ -298,12 +298,39 @@ app.post("/widget", async (req, res) => {
     // ── generate ──
     if (action === "generate") {
       if (!AI_ENABLED) return res.status(503).json({ error:"Add ANTHROPIC_API_KEY to .env to enable AI generation" });
-      if (!p.prompt)   return res.status(400).json({ error:"prompt required" });
+      if (!p.prompt && !p.url) return res.status(400).json({ error:"prompt or url required" });
+
+      let contextText = "";
+      if (p.url) {
+        try {
+          console.log(`→ fetching URL: ${p.url}`);
+          const pageRes = await fetch(p.url, {
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; CommunityPublisher/1.0)" }
+          });
+          const html = await pageRes.text();
+          contextText = html
+            .replace(/<script[\s\S]*?<\/script>/gi, " ")
+            .replace(/<style[\s\S]*?<\/style>/gi, " ")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+            .replace(/\s+/g, " ").trim()
+            .substring(0, 6000);
+          console.log(`← fetched ${contextText.length} chars from URL`);
+        } catch (e) {
+          return res.status(400).json({ error: `Could not fetch URL: ${e.message}` });
+        }
+      }
+
+      const instruction = "Line 1 = plain title (no # prefix). Then 4-6 paragraphs. Plain text, no markdown. 400-600 words.";
+      const userContent = contextText
+        ? `Based on this content from ${p.url}:\n\n${contextText}\n\n${p.prompt || "Write a community article summarizing the key insights."}\n\n${instruction}`
+        : `Write a community article about: ${p.prompt}. ${instruction}`;
+
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method:"POST",
         headers:{ "x-api-key":AI_KEY, "anthropic-version":"2023-06-01", "content-type":"application/json" },
         body: JSON.stringify({ model:"claude-haiku-4-5-20251001", max_tokens:1500,
-          messages:[{ role:"user", content:`Write a community article about: ${p.prompt}. Line 1 = plain title (no # prefix). Then 4-6 paragraphs. Plain text, no markdown. 400-600 words.` }] })
+          messages:[{ role:"user", content: userContent }] })
       });
       const data = await r.json();
       if (!r.ok) return res.status(r.status).json({ error:data.error?.message||JSON.stringify(data) });
