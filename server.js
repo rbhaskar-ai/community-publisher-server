@@ -230,16 +230,15 @@ function splitHtmlChunks(html, maxLen = 4500) {
 async function googleTranslate(text, langCode) {
   const isHtml = /<[^>]+>/.test(text);
   const chunks = isHtml ? splitHtmlChunks(text) : splitIntoChunks(text, 4500);
-  const translated = [];
-  for (const chunk of chunks) {
+  // Translate all chunks in parallel with a 12s per-chunk timeout
+  const results = await Promise.all(chunks.map(async (chunk) => {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${langCode}&dt=t&q=${encodeURIComponent(chunk)}`;
-    const r = await fetch(url);
+    const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
     if (!r.ok) throw new Error(`Google Translate HTTP ${r.status}`);
     const d = await r.json();
-    const result = (d[0] || []).map(c => c[0] || "").join("");
-    translated.push(result);
-  }
-  return translated.join(isHtml ? "" : " ");
+    return (d[0] || []).map(c => c[0] || "").join("");
+  }));
+  return results.join(isHtml ? "" : " ");
 }
 
 app.post("/proxy/translate", async (req, res) => {
