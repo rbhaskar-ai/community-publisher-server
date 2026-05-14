@@ -375,6 +375,34 @@ app.post("/widget", async (req, res) => {
       return res.json(data);
     }
 
+    // ── upload-image — upload to inSided media, return hosted URL ──
+    if (action === "upload-image") {
+      if (!p.imageBase64 || !p.mimeType) return res.status(400).json({ error:"imageBase64 and mimeType required" });
+      const token    = await widgetToken();
+      const authorId = p.authorId || W_AUTHOR_ID;
+      const buf      = Buffer.from(p.imageBase64, "base64");
+      const ext      = p.mimeType.split("/")[1] || "jpg";
+      const filename = p.filename || `image.${ext}`;
+      // Use global FormData (Node 18+) for multipart upload
+      const form = new FormData();
+      form.append("file", new Blob([buf], { type: p.mimeType }), filename);
+      console.log(`→ widget upload-image: ${filename} (${buf.length} bytes)`);
+      const r = await fetch(`${W_REGION}/v2/media?authorId=${authorId}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      const text = await r.text();
+      let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+      if (!r.ok) return res.status(r.status).json(data);
+      // inSided returns url in different fields depending on version
+      const url = data.url || data.imageUrl || data.src || data.link || data.cdnUrl
+        || (data.result && (data.result.url || data.result.imageUrl))
+        || null;
+      console.log(`← widget upload-image: url=${url}`);
+      return res.json({ url, ...data });
+    }
+
     // ── translate ──
     if (action === "translate") {
       const langCode = LANG_CODES[p.targetLang];
