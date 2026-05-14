@@ -423,11 +423,33 @@ app.post("/widget", async (req, res) => {
     }
 
     // ── translate ──
+    // Uses AI if a provider is configured (no size limit, higher quality).
+    // Falls back to MyMemory (free, 500 char/chunk limit) if no AI key is set.
     if (action === "translate") {
-      const langCode = LANG_CODES[p.targetLang];
-      if (!langCode) return res.status(400).json({ error:`Unknown language: ${p.targetLang}` });
-      const [title, body] = await Promise.all([myMemoryTranslate(p.title, langCode), myMemoryTranslate(p.body, langCode)]);
-      return res.json({ title, body });
+      if (!p.targetLang || !p.title || !p.body) return res.status(400).json({ error:"targetLang, title and body required" });
+      console.log(`→ translate [${p.targetLang}] "${p.title.substring(0,40)}" (${p.body.length} chars) via ${AI_PROVIDER}`);
+      try {
+        if (AI_PROVIDER !== "disabled") {
+          // AI translation — handles up to 100 000 chars, preserves [IMG0] placeholders
+          const prompt = `Translate the following article from English to ${p.targetLang}.\nReturn ONLY a valid JSON object with exactly two fields: "title" (string) and "body" (string).\nPreserve any [IMG0], [IMG1], [IMG2] etc. tokens exactly as-is — do not translate or remove them.\nDo not add markdown, code fences, or any explanation.\n\nTitle: ${p.title}\n\nBody:\n${p.body}`;
+          const raw = await callAI(prompt);
+          const json = JSON.parse(raw.trim().replace(/^```json\s*/,"").replace(/\s*```$/,""));
+          console.log(`← translate [${p.targetLang}] AI done`);
+          return res.json({ title: json.title || p.title, body: json.body || p.body });
+        } else {
+          // MyMemory fallback — free but limited to 500 chars per chunk
+          const langCode = LANG_CODES[p.targetLang];
+          if (!langCode) return res.status(400).json({ error:`Unknown language: ${p.targetLang}` });
+          const [title, body] = await Promise.all([
+            myMemoryTranslate(p.title, langCode),
+            myMemoryTranslate(p.body,  langCode),
+          ]);
+          console.log(`← translate [${p.targetLang}] MyMemory done`);
+          return res.json({ title, body });
+        }
+      } catch(e) {
+        return res.status(500).json({ error: e.message });
+      }
     }
 
     // ── generate ──
