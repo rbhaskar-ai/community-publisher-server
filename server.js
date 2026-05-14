@@ -442,6 +442,38 @@ app.post("/widget", async (req, res) => {
       }
     }
 
+    // ── fetch-article — fetch URL and extract article HTML ──
+    if (action === "fetch-article") {
+      if (!p.url) return res.status(400).json({ error: "url required" });
+      console.log(`→ fetch-article: ${p.url}`);
+      const r = await fetch(p.url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; CommunityPublisher/1.0)" } });
+      if (!r.ok) return res.status(400).json({ error: `Could not fetch URL: HTTP ${r.status}` });
+      const raw = await r.text();
+
+      // Extract article body — try progressively broader selectors
+      let html = "";
+      const try_ = (re) => { const m = raw.match(re); return m ? m[0] : null; };
+
+      html = try_(/<div[^>]*class="[^"]*lia-message-body-content[^"]*"[^>]*>([\s\S]*?)<\/div>\s*(?=<\/div>)/i)
+          || try_(/<div[^>]*class="[^"]*article[- ]body[^"]*"[^>]*>([\s\S]*?)<\/div>/i)
+          || try_(/<article[^>]*>([\s\S]*?)<\/article>/i)
+          || try_(/<main[^>]*>([\s\S]*?)<\/main>/i)
+          || "";
+
+      if (!html) return res.status(400).json({ error: "Could not locate article body in page. Try pasting the HTML manually." });
+
+      // Strip scripts, styles, nav, share bars
+      html = html
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<nav[\s\S]*?<\/nav>/gi, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      console.log(`← fetch-article: ${html.length} chars`);
+      return res.json({ html });
+    }
+
     // ── generate ──
     if (action === "generate") {
       if (!p.prompt && !p.url) return res.status(400).json({ error:"prompt or url required" });
