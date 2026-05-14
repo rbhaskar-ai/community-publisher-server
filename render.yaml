@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: community-publisher
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    plan: free
+    envVars:
+      - key: INSIDED_REGION
+        value: https://api2-us-west-2.insided.com
+      - key: INSIDED_AUTHOR_ID
+        value: "2011"
+      - key: INSIDED_CLIENT_ID
+        sync: false
+      - key: INSIDED_CLIENT_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
