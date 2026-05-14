@@ -27,75 +27,89 @@ app.get("/community-publisher-agent.html", (req, res) => {
 });
 
 // ── AI provider setup ─────────────────────────────────────────────────────────
+// Priority: GEMINI_API_KEY (AI Studio, free) → ANTHROPIC_API_KEY → Vertex AI
+// To switch provider: set the relevant env var in Render, remove/leave the others blank.
 const crypto = require("crypto");
 
-const AI_KEY      = process.env.ANTHROPIC_API_KEY;
-const AI_ENABLED  = !!(AI_KEY && !AI_KEY.includes("paste-your-key"));
+const GEMINI_KEY     = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL   = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const GEMINI_ENABLED = !!(GEMINI_KEY);
 
-const VERTEX_SA   = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-const VERTEX_PROJ = process.env.GOOGLE_PROJECT_ID;
-const VERTEX_LOC  = process.env.VERTEX_LOCATION || "us-central1";
-const VERTEX_MODEL= process.env.VERTEX_MODEL    || "gemini-1.5-flash";
+const ANTHROPIC_KEY     = process.env.ANTHROPIC_API_KEY;
+const ANTHROPIC_ENABLED = !!(ANTHROPIC_KEY && !ANTHROPIC_KEY.includes("paste-your-key"));
+
+const VERTEX_SA      = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+const VERTEX_PROJ    = process.env.GOOGLE_PROJECT_ID;
+const VERTEX_LOC     = process.env.VERTEX_LOCATION || "us-central1";
+const VERTEX_MODEL   = process.env.VERTEX_MODEL    || "gemini-1.5-flash";
 const VERTEX_ENABLED = !!(VERTEX_SA && VERTEX_PROJ);
 
-// Token cache for Vertex AI (1-hour tokens)
+const AI_PROVIDER = GEMINI_ENABLED ? "gemini" : ANTHROPIC_ENABLED ? "anthropic" : VERTEX_ENABLED ? "vertex" : "disabled";
+
+// Vertex token cache
 let _vtok = { token: null, exp: 0 };
 async function vertexToken() {
   if (_vtok.token && Date.now() < _vtok.exp) return _vtok.token;
   const creds = JSON.parse(VERTEX_SA);
-  const now   = Math.floor(Date.now() / 1000);
-  const hdr   = Buffer.from(JSON.stringify({ alg:"RS256", typ:"JWT" })).toString("base64url");
-  const pay   = Buffer.from(JSON.stringify({
-    iss: creds.client_email,
-    scope: "https://www.googleapis.com/auth/cloud-platform",
-    aud:  "https://oauth2.googleapis.com/token",
-    iat:  now, exp: now + 3600
+  const now = Math.floor(Date.now() / 1000);
+  const hdr = Buffer.from(JSON.stringify({ alg:"RS256", typ:"JWT" })).toString("base64url");
+  const pay = Buffer.from(JSON.stringify({
+    iss: creds.client_email, scope:"https://www.googleapis.com/auth/cloud-platform",
+    aud:"https://oauth2.googleapis.com/token", iat:now, exp:now+3600
   })).toString("base64url");
-  const sig = crypto.createSign("RSA-SHA256").update(`${hdr}.${pay}`).sign(creds.private_key, "base64url");
-  const jwt = `${hdr}.${pay}.${sig}`;
+  const sig = crypto.createSign("RSA-SHA256").update(`${hdr}.${pay}`).sign(creds.private_key,"base64url");
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
-    body: new URLSearchParams({ grant_type:"urn:ietf:params:oauth:grant-type:jwt-bearer", assertion:jwt })
+    body: new URLSearchParams({ grant_type:"urn:ietf:params:oauth:grant-type:jwt-bearer", assertion:`${hdr}.${pay}.${sig}` })
   });
   const d = await r.json();
   if (!d.access_token) throw new Error(`Vertex auth failed: ${JSON.stringify(d)}`);
-  _vtok = { token: d.access_token, exp: Date.now() + 3500000 };
-  console.log("✅ Vertex AI token refreshed");
+  _vtok = { token:d.access_token, exp:Date.now()+3500000 };
   return _vtok.token;
 }
 
-async function generateWithVertex(userContent) {
-  const token = await vertexToken();
-  const url = `https://${VERTEX_LOC}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJ}/locations/${VERTEX_LOC}/publishers/google/models/${VERTEX_MODEL}:generateContent`;
-  const r = await fetch(url, {
-    method:"POST",
-    headers:{ Authorization:`Bearer ${token}`, "Content-Type":"application/json" },
-    body: JSON.stringify({
-      contents:[{ role:"user", parts:[{ text: userContent }] }],
-      generationConfig:{ maxOutputTokens:1500, temperature:0.7 }
-    })
-  });
-  const d = await r.json();
-  if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
-  return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+async function callAI(userContent) {
+  if (GEMINI_ENABLED) {
+    // Google AI Studio — free tier, simple API key
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
+    const r = await fetch(url, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ contents:[{ parts:[{ text:userContent }] }],
+        generationConfig:{ maxOutputTokens:1500, temperature:0.7 } })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
+    return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  }
+  if (ANTHROPIC_ENABLED) {
+    // Anthropic Claude
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method:"POST",
+      headers:{ "x-api-key":ANTHROPIC_KEY, "anthropic-version":"2023-06-01", "content-type":"application/json" },
+      body: JSON.stringify({ model:"claude-haiku-4-5-20251001", max_tokens:1500,
+        messages:[{ role:"user", content:userContent }] })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
+    return d.content?.[0]?.text || "";
+  }
+  if (VERTEX_ENABLED) {
+    // Google Vertex AI — service account auth
+    const token = await vertexToken();
+    const url = `https://${VERTEX_LOC}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJ}/locations/${VERTEX_LOC}/publishers/google/models/${VERTEX_MODEL}:generateContent`;
+    const r = await fetch(url, {
+      method:"POST", headers:{ Authorization:`Bearer ${token}`, "Content-Type":"application/json" },
+      body: JSON.stringify({ contents:[{ role:"user", parts:[{ text:userContent }] }],
+        generationConfig:{ maxOutputTokens:1500, temperature:0.7 } })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
+    return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  }
+  throw new Error("No AI provider configured. Set GEMINI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_PROJECT_ID in environment.");
 }
 
-async function generateWithAnthropic(userContent) {
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method:"POST",
-    headers:{ "x-api-key":AI_KEY, "anthropic-version":"2023-06-01", "content-type":"application/json" },
-    body: JSON.stringify({ model:"claude-haiku-4-5-20251001", max_tokens:1500,
-      messages:[{ role:"user", content: userContent }] })
-  });
-  const d = await r.json();
-  if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
-  return d.content?.[0]?.text || "";
-}
-
-app.get("/health", (_, res) => res.json({
-  status:"ok", port:PORT,
-  ai: VERTEX_ENABLED ? "vertex" : AI_ENABLED ? "anthropic" : "disabled"
-}));
+app.get("/health", (_, res) => res.json({ status:"ok", port:PORT, ai:AI_PROVIDER }));
 
 // ── shared generate helper ────────────────────────────────────────────────────
 async function runGenerate(prompt, url) {
@@ -115,7 +129,7 @@ async function runGenerate(prompt, url) {
     content = `Write a community article about: ${prompt}. ${instruction}`;
     console.log(`→ generate: "${prompt.substring(0,60)}"`);
   }
-  const raw = VERTEX_ENABLED ? await generateWithVertex(content) : await generateWithAnthropic(content);
+  const raw = await callAI(content);
   const lines = raw.trim().split("\n").filter(l => l.trim());
   const title = lines[0].replace(/^[#*\s]+/,"").trim();
   const body  = lines.slice(1).join("\n\n").trim();
