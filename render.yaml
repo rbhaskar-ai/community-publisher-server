@@ -7,9 +7,9 @@ services:
     plan: free
     envVars:
       - key: INSIDED_REGION
-        value: https://api2-us-west-2.insided.com
+        sync: false
       - key: INSIDED_AUTHOR_ID
-        value: "2011"
+        sync: false
       - key: INSIDED_CLIENT_ID
         sync: false
       - key: INSIDED_CLIENT_SECRET

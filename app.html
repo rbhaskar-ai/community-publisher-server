@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Community Publisher Agent</title>
+<link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f5f5f3;color:#1a1a18;min-height:100vh;padding:2rem 1rem}
+.page{max-width:720px;margin:0 auto}
+.hdr{display:flex;align-items:center;gap:10px;padding-bottom:1rem;margin-bottom:1.5rem;border-bottom:1px solid #e0dfd8}
+.badge{font-size:11px;padding:3px 9px;border-radius:5px;font-weight:500;background:#dbeafe;color:#1d4ed8}
+.badge.ok{background:#dcfce7;color:#15803d}
+.card{background:#fff;border:1px solid #e0dfd8;border-radius:10px;padding:1.25rem;margin-bottom:1rem}
+.card-title{font-size:14px;font-weight:600;margin-bottom:.875rem}
+label{font-size:11px;color:#6b6b67;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-bottom:5px;display:block}
+input[type=text],input[type=password],select{width:100%;padding:9px 11px;border:1px solid #d1d0c8;border-radius:7px;background:#fff;color:#1a1a18;font-size:13px;font-family:inherit}
+input:focus,select:focus{outline:none;border-color:#6366f1}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.chip{padding:7px 10px;border-radius:7px;border:1px solid #d1d0c8;background:#f5f5f3;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:5px;user-select:none}
+.chip.on{border-color:#6366f1;background:#ede9fe;color:#4338ca}
+.btn{padding:8px 15px;border-radius:7px;border:1px solid #d1d0c8;background:#fff;color:#1a1a18;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-family:inherit;white-space:nowrap}
+.btn:hover{background:#f5f5f3}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.p{background:#1a1a18;color:#fff;border-color:#1a1a18}
+.btn.p:hover{opacity:.85}
+.btn.ai{background:linear-gradient(135deg,#7c3aed,#6366f1);color:#fff;border:none;font-weight:500}
+.btn.ai:hover{opacity:.88}
+.btn.ai:disabled{opacity:.4}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.hint{font-size:11px;color:#6b6b67;margin-top:5px}
+.err{background:#fee2e2;color:#b91c1c;border-radius:7px;padding:9px 13px;font-size:12px;margin-top:8px;border:1px solid #fca5a5}
+.ok-box{background:#dcfce7;color:#15803d;border-radius:8px;padding:14px 16px;font-size:13px;margin-bottom:12px;border:1px solid #86efac}
+.info{background:#eff6ff;color:#1e40af;border-radius:8px;padding:11px 14px;font-size:12px;margin-bottom:12px;border:1px solid #bfdbfe;line-height:1.65}
+.step-bar{display:flex;align-items:flex-start;margin-bottom:1.5rem}
+.si{display:flex;flex-direction:column;align-items:center;gap:3px}
+.sl{flex:1;height:1px;background:#e0dfd8;margin-top:13px}
+.sd{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;border:1px solid #e0dfd8;flex-shrink:0}
+.slb{font-size:10px;color:#6b6b67;white-space:nowrap}
+.prow{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f0efe8;font-size:12px}
+.prow:last-child{border-bottom:none}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.tab-bar{display:flex;gap:4px;border-bottom:1px solid #e0dfd8;margin-bottom:10px}
+.tab{padding:5px 11px;font-size:12px;cursor:pointer;border-bottom:2px solid transparent;color:#6b6b67;background:none;border-top:none;border-left:none;border-right:none;font-family:inherit}
+.tab.on{color:#1a1a18;border-bottom-color:#1a1a18}
+.pbox{background:#f5f5f3;border-radius:7px;padding:10px;font-size:12px;line-height:1.65;color:#6b6b67;max-height:110px;overflow-y:auto}
+code{background:#f0efe8;padding:1px 5px;border-radius:3px;font-size:11px;font-family:monospace}
+.mb{margin-bottom:10px}
+.ai-card{background:linear-gradient(135deg,#fdf4ff,#eff6ff);border:1.5px solid #c4b5fd;border-radius:10px;padding:16px;margin-bottom:12px}
+.ai-heading{font-size:13px;font-weight:600;color:#7c3aed;display:flex;align-items:center;gap:7px;margin-bottom:12px}
+.ai-prompt{border-color:#c4b5fd!important;background:#fff!important}
+.ai-prompt:focus{border-color:#7c3aed!important}
+.ai-tip{font-size:11px;color:#9c6fe4;margin-left:4px}
+.ql-toolbar.ql-snow{border:1px solid #d1d0c8;border-bottom:none;border-radius:7px 7px 0 0;background:#fafaf8;padding:8px 10px}
+.ql-container.ql-snow{border:1px solid #d1d0c8;border-radius:0 0 7px 7px;font-size:13.5px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.ql-editor{min-height:260px;line-height:1.75;padding:14px 16px}
+.ql-editor.ql-blank::before{color:#9ca3af;font-style:normal;font-size:13px}
+.ql-snow.ql-toolbar button:hover .ql-stroke,.ql-snow.ql-toolbar button.ql-active .ql-stroke{stroke:#6366f1!important}
+.ql-snow.ql-toolbar button:hover .ql-fill,.ql-snow.ql-toolbar button.ql-active .ql-fill{fill:#6366f1!important}
+.ql-snow.ql-toolbar .ql-picker-label:hover,.ql-snow.ql-toolbar .ql-picker.ql-expanded .ql-picker-label{color:#6366f1!important}
+.ql-snow.ql-toolbar .ql-picker.ql-expanded .ql-picker-label .ql-stroke{stroke:#6366f1!important}
+.ql-editor h1{font-size:1.5em;font-weight:700;margin-bottom:.4em}
+.ql-editor h2{font-size:1.25em;font-weight:600;margin-bottom:.35em}
+.ql-editor h3{font-size:1.1em;font-weight:600;margin-bottom:.3em}
+.ql-editor p{margin-bottom:.55em}
+.ql-editor ul,.ql-editor ol{padding-left:1.5em;margin-bottom:.6em}
+.ql-editor blockquote{border-left:3px solid #6366f1;padding-left:1em;color:#6b6b67;margin:.6em 0;font-style:italic}
+.ql-editor pre.ql-syntax{background:#1e1e2e;color:#cdd6f4;border-radius:6px;padding:.75em 1em;font-size:12px}
+.editor-wrap{border-radius:7px;overflow:hidden;margin-bottom:6px}
+/* imported HTML preview */
+#imported-preview{display:none;border:1px solid #d1d0c8;border-radius:7px;padding:14px 16px;min-height:260px;font-size:13.5px;line-height:1.75;background:#fff;margin-bottom:6px;overflow:auto;max-height:480px}
+#imported-preview h1,#imported-preview h2,#imported-preview h3,#imported-preview h4{font-weight:700;margin:.6em 0 .3em}
+#imported-preview h1{font-size:1.5em}
+#imported-preview h2{font-size:1.25em}
+#imported-preview h3{font-size:1.1em}
+#imported-preview p{margin-bottom:.55em}
+#imported-preview ul,#imported-preview ol{padding-left:1.5em;margin-bottom:.6em}
+#imported-preview li{margin-bottom:.25em}
+#imported-preview table{border-collapse:collapse;width:100%;margin-bottom:.75em;font-size:12px}
+#imported-preview th,#imported-preview td{border:1px solid #d1d0c8;padding:6px 10px;text-align:left}
+#imported-preview th{background:#f5f5f3;font-weight:600}
+#imported-preview img{max-width:100%;height:auto;border-radius:5px;margin:.4em 0}
+#imported-preview blockquote{border-left:3px solid #6366f1;padding-left:1em;color:#6b6b67;margin:.6em 0;font-style:italic}
+#imported-preview pre,#imported-preview code{background:#f0efe8;padding:2px 6px;border-radius:4px;font-size:12px;font-family:monospace}
+#imported-preview a{color:#4338ca;text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="hdr">
+    <span style="font-size:20px">🌐</span>
+    <span style="font-size:15px;font-weight:600">Community Publisher Agent</span>
+    <span id="hb" class="badge">Gainsight inSided</span>
+  </div>
+  <div id="app"></div>
+</div>
+<script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
+<script>
+// When deployed to Render, use same-origin (empty string).
+// Locally (node server.js → http://localhost:3001) this also works.
+var PROXY = "";
+
+var REGIONS = [
+  {id:"custom",    l:"Custom / your community",             v:"custom", c:""},
+  {id:"prod-us",   l:"US West 2 (api2-us-west-2.insided.com)",v:"https://api2-us-west-2.insided.com",c:""},
+  {id:"prod-eu",   l:"EU West 1 (api2-eu-west-1.insided.com)",v:"https://api2-eu-west-1.insided.com",c:""}
+];
+var LANGS = [
+  {c:"en",l:"English",    f:"🇺🇸"},
+  {c:"es",l:"Spanish",    f:"🇪🇸"},
+  {c:"fr",l:"French",     f:"🇫🇷"},
+  {c:"de",l:"German",     f:"🇩🇪"},
+  {c:"pt",l:"Portuguese", f:"🇧🇷"},
+  {c:"ja",l:"Japanese",   f:"🇯🇵"},
+  {c:"ko",l:"Korean",     f:"🇰🇷"},
+  {c:"zh",l:"Chinese",    f:"🇨🇳"}
+];
+
+var quillInst = null;
+var rawBodyHtml = null;
+var S = {
+  step:0, region:REGIONS[0].v, regionId:REGIONS[0].id,
+  customRegion:"", cid:"", csec:"", aid:"", token:null, authLoading:false, authErr:"",
+  proxyOk:null, aiEnabled:false,
+  title:"", body:"", srcLbl:"", importing:false,
+  aiPrompt:"", generating:false, aiErr:"",
+  cats:[], catLoading:false, catErr:"", catId:"",
+  langs:new Set(["en"]), tx:{}, prevLang:"en", showPrev:false, prevLoading:false,
+  jobs:[], publishing:false, publishAsDraft:true
+};
+
+function set(p){Object.assign(S,p);draw();}
+
+function htmlToText(html){
+  if(!html||!html.trim())return"";
+  if(!/<[a-z]/i.test(html))return html;
+  var d=document.createElement("div");
+  d.innerHTML=html;
+  d.querySelectorAll("p,h1,h2,h3,h4,li,div").forEach(function(n){n.insertAdjacentText("afterend","\n");});
+  d.querySelectorAll("br").forEach(function(n){n.replaceWith("\n");});
+  return(d.textContent||"").replace(/\n{3,}/g,"\n\n").trim();
+}
+
+function plainToHtml(text){
+  if(!text||!text.trim())return"";
+  if(/<[a-z]/i.test(text))return text;
+  return text.split(/\n\n+/).filter(function(p){return p.trim();}).map(function(p){
+    return"<p>"+p.trim().replace(/\n/g,"<br>")+"</p>";
+  }).join("");
+}
+
+function initQuill(){
+  quillInst=null;
+  var el=document.getElementById("quill-editor");
+  if(!el)return;
+  quillInst=new Quill("#quill-editor",{
+    theme:"snow",
+    modules:{toolbar:[[{header:[1,2,3,false]}],["bold","italic","underline","strike"],[{color:[]},{background:[]}],[{list:"ordered"},{list:"bullet"}],[{align:[]}],["link","image","blockquote","code-block"],["clean"]]},
+    placeholder:"Write your article here…"
+  });
+  if(S.body&&!rawBodyHtml){
+    var html=/<[a-z]/i.test(S.body)?S.body:plainToHtml(S.body);
+    quillInst.clipboard.dangerouslyPasteHTML(html);
+    S.body=quillInst.root.innerHTML;
+  }
+  quillInst.on("text-change",function(){if(!rawBodyHtml)S.body=quillInst.root.innerHTML;});
+}
+
+async function checkProxy(){
+  try{
+    var r=await fetch(PROXY+"/health",{signal:AbortSignal.timeout(3000)});
+    var d=await r.json();
+    set({proxyOk:d.status==="ok",aiEnabled:d.ai&&d.ai!=="disabled"});
+  }catch(e){set({proxyOk:false,aiEnabled:false});}
+}
+checkProxy();
+
+async function doGenerate(){
+  if(!S.aiPrompt.trim()){set({aiErr:"Enter a topic first."});return;}
+  set({generating:true,aiErr:""});
+  try{
+    var r=await fetch(PROXY+"/proxy/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:S.aiPrompt})});
+    var d=await r.json();
+    if(!r.ok)throw new Error(d.error||"Generation failed "+r.status);
+    rawBodyHtml=null;
+    set({generating:false,title:d.title||S.title,body:plainToHtml(d.body||""),tx:{},srcLbl:"✦ AI generated"});
+  }catch(e){set({generating:false,aiErr:e.message});}
+}
+
+async function doAuth(){
+  if(!S.cid||!S.csec||!S.aid){set({authErr:"All three fields are required."});return;}
+  set({authLoading:true,authErr:""});
+  var region=S.regionId==="custom"?S.customRegion:S.region;
+  if(!region||region==="custom"){set({authLoading:false,authErr:"Enter your API region URL."});return;}
+  try{
+    var r=await fetch(PROXY+"/proxy/token",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({region:region,client_id:S.cid,client_secret:S.csec})});
+    var d=await r.json();
+    if(!r.ok)throw new Error(d.error_description||d.error||"Auth failed "+r.status);
+    if(!d.access_token)throw new Error("No access_token in response");
+    var hb=document.getElementById("hb");
+    if(hb){hb.className="badge ok";hb.textContent="✓ Connected";}
+    set({token:d.access_token,region:region,authLoading:false,step:1});
+  }catch(e){set({authErr:e.message,authLoading:false});}
+}
+
+async function loadCats(){
+  set({catLoading:true,catErr:""});
+  try{
+    var r=await fetch(PROXY+"/proxy/categories?region="+encodeURIComponent(S.region),{headers:{Authorization:"Bearer "+S.token}});
+    var d=await r.json();
+    if(!r.ok)throw new Error(d.error||"Categories failed: "+r.status);
+    var list=Array.isArray(d)?d:(d.items||d.data||d.result||[]);
+    set({cats:list,catLoading:false});
+  }catch(e){set({catErr:e.message,catLoading:false});}
+}
+
+/* image placeholder helpers */
+function extractImgs(html){
+  var imgs=[];
+  var out=html.replace(/<img[^>]+>/gi,function(tag){
+    var idx=imgs.length;
+    imgs.push(tag);
+    return"__IMG"+idx+"__";
+  });
+  return{withPlaceholders:out,imgs:imgs};
+}
+function restoreImgs(html,imgs){
+  return html.replace(/__IMG(\d+)__/g,function(_,i){return imgs[parseInt(i)]||"";});
+}
+
+var TX_NAMES={es:"Spanish",fr:"French",de:"German",pt:"Portuguese (Brazilian)",ja:"Japanese",ko:"Korean",zh:"Simplified Chinese"};
+var AI_DISCLAIMER='<p><br></p><hr><p><em>&#x1F916; <strong>AI Translation Notice:</strong> This article has been automatically translated from English using AI. If you find any inaccuracies, please contact our community team.</em></p>';
+
+async function doTx(title,body,code){
+  if(code==="en")return{title:title,body:body};
+  var{withPlaceholders,imgs}=extractImgs(body);
+  var r=await fetch(PROXY+"/proxy/translate",{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({targetLang:TX_NAMES[code],title:title,body:withPlaceholders})
+  });
+  var d=await r.json();
+  if(!r.ok)throw new Error(d.error||"Translation failed "+r.status);
+  return{title:d.title,body:restoreImgs(d.body,imgs)+AI_DISCLAIMER};
+}
+
+async function doPreview(){
+  set({prevLoading:true,showPrev:true});
+  var cache=Object.assign({},S.tx);
+  var langs=Array.from(S.langs);
+  for(var i=0;i<langs.length;i++){
+    var c=langs[i];
+    if(!cache[c]){
+      try{cache[c]=await doTx(S.title,S.body,c);}
+      catch(e){cache[c]={title:"[Error]",body:e.message};}
+      S.tx=Object.assign({},cache);draw();
+    }
+  }
+  set({prevLoading:false});
+}
+
+async function doFetchUrl(){
+  var inp=document.getElementById("fetch-url-input");
+  if(!inp||!inp.value.trim())return;
+  var url=inp.value.trim();
+  set({importing:true,srcLbl:"Fetching…"});
+  try{
+    var r=await fetch(PROXY+"/widget",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"fetch-article",url:url})});
+    var d=await r.json();
+    if(!r.ok||d.error)throw new Error(d.error||"Fetch failed");
+    rawBodyHtml=d.html;
+    var preview=document.getElementById("imported-preview");
+    var edwrap=document.getElementById("editor-wrap");
+    if(preview){preview.innerHTML=d.html;preview.style.display="block";}
+    if(edwrap)edwrap.style.display="none";
+    var clearBtn=document.getElementById("clear-import-btn");
+    if(clearBtn)clearBtn.style.display="inline-flex";
+    S.body=d.html;
+    var wc=htmlToText(d.html).split(/\s+/).filter(Boolean).length;
+    set({importing:false,srcLbl:"✓ Imported from URL",body:d.html});
+  }catch(e){set({importing:false,srcLbl:"",aiErr:e.message});}
+}
+
+function clearImport(){
+  rawBodyHtml=null;
+  S.body="";
+  var preview=document.getElementById("imported-preview");
+  var edwrap=document.getElementById("editor-wrap");
+  if(preview){preview.innerHTML="";preview.style.display="none";}
+  if(edwrap)edwrap.style.display="block";
+  var clearBtn=document.getElementById("clear-import-btn");
+  if(clearBtn)clearBtn.style.display="none";
+  set({srcLbl:""});
+}
+
+async function doPublish(){
+  if(!S.catId){alert("Select a community section first.");return;}
+  var bodyToPublish=rawBodyHtml||S.body;
+  if(!S.title.trim()||!htmlToText(bodyToPublish).trim()){alert("Article needs a title and body.");return;}
+  var langs=Array.from(S.langs);
+  var jobs=langs.map(function(c){var l=LANGS.find(function(x){return x.c===c;});return{c:c,l:l.l,f:l.f,status:"pending",err:null,link:null};});
+  set({jobs:jobs.slice(),publishing:true});
+  var cache=Object.assign({},S.tx);
+  for(var i=0;i<jobs.length;i++){
+    jobs[i].status="working";S.jobs=jobs.slice();draw();
+    try{
+      if(!cache[jobs[i].c]){cache[jobs[i].c]=await doTx(S.title,bodyToPublish,jobs[i].c);S.tx=Object.assign({},cache);}
+      var tx=cache[jobs[i].c]||{title:S.title,body:bodyToPublish};
+      var r=await fetch(PROXY+"/proxy/articles",{
+        method:"POST",
+        headers:{Authorization:"Bearer "+S.token,"Content-Type":"application/json"},
+        body:JSON.stringify({region:S.region,authorId:S.aid,title:tx.title,content:tx.body,categoryId:parseInt(S.catId),publishAfterCreate:!S.publishAsDraft})
+      });
+      var rawText=await r.text();
+      var res;try{res=JSON.parse(rawText);}catch(pe){throw new Error("Server error ("+r.status+"): "+rawText.replace(/<[^>]+>/g," ").trim().substring(0,200));}
+      if(!r.ok)throw new Error("inSided "+r.status+": "+(res.message||res.error||JSON.stringify(res)));
+      jobs[i].status="done";
+      jobs[i].link=res.link||res.url||(res.seoCommunityUrl?res.seoCommunityUrl:res.id?"/article/"+res.id:null);
+    }catch(e){jobs[i].status="error";jobs[i].err=e.message;}
+    S.jobs=jobs.slice();draw();
+  }
+  set({publishing:false,step:3});
+}
+
+function toggleLang(c){if(c==="en")return;var n=new Set(S.langs);n.has(c)?n.delete(c):n.add(c);S.langs=n;S.tx={};S.showPrev=false;draw();}
+
+function dc(s){return s==="done"?"#16a34a":s==="working"?"#d97706":s==="error"?"#dc2626":"#d1d0c8";}
+
+function stepBar(){
+  var labels=["Connect","Write","Publish","Done"],h="";
+  for(var i=0;i<labels.length;i++){
+    if(i>0)h+='<div class="sl"></div>';
+    var done=S.step>i,active=S.step===i;
+    h+='<div class="si"><div class="sd" style="background:'+(done?"#dcfce7":active?"#1a1a18":"#f5f5f3")+';color:'+(done?"#15803d":active?"#fff":"#6b6b67")+'">'+(done?"✓":(i+1))+'</div><span class="slb" style="color:'+(active?"#1a1a18":"#6b6b67")+'">'+labels[i]+'</span></div>';
+  }
+  return'<div class="step-bar">'+h+'</div>';
+}
+
+function draw(){
+  var el=document.getElementById("app");
+  if(!el)return;
+  var h="";
+
+  if(S.step===0){
+    h=stepBar()
+      +'<div class="card"><div class="card-title">Connect to your Gainsight Community</div>'
+      +'<div class="mb"><label>API Region</label>'
+      +'<select onchange="var rid=this.value;var sel=REGIONS.find(function(r){return r.id===rid;})||REGIONS[0];S.regionId=rid;S.region=sel.id===\'custom\'?(S.customRegion||\'custom\'):sel.v;draw();">'
+      +REGIONS.map(function(r){return'<option value="'+r.id+'"'+(S.regionId===r.id?" selected":"")+'>'+r.l+'</option>';}).join("")
+      +'</select>'
+      +(S.regionId==="custom"||S.region==="custom"?'<input type="text" style="margin-top:6px" placeholder="https://api2-us-west-2.insided.com" value="'+S.customRegion+'" oninput="S.customRegion=this.value;S.region=this.value;">':'')
+      +'</div>'
+      +'<div class="g2">'
+      +'<div><label>Client ID</label><input type="text" placeholder="Control › Integrations › API" value="'+S.cid+'" oninput="S.cid=this.value"></div>'
+      +'<div><label>Client Secret</label><input type="password" placeholder="Shown once on creation" value="'+S.csec+'" oninput="S.csec=this.value"></div>'
+      +'</div>'
+      +'<div class="mb"><label>Author / Moderator User ID</label><input type="text" placeholder="Numeric user ID — Control › Users" value="'+S.aid+'" oninput="S.aid=this.value"><div class="hint">API posts are attributed to this account</div></div>'
+      +(S.authErr?'<div class="err">⚠ '+S.authErr+'</div>':"")
+      +'<div style="margin-top:14px"><button class="btn p" onclick="doAuth()" '+(S.authLoading?"disabled":"")+'>🔗 '+(S.authLoading?"Authenticating…":"Connect & Authenticate")+'</button></div>'
+      +'</div>';
+  }
+
+  else if(S.step===1){
+    var bodyToShow=rawBodyHtml||S.body;
+    var ptxt=htmlToText(bodyToShow);
+    var wc=ptxt.split(/\s+/).filter(Boolean).length;
+
+    h=stepBar()
+      +'<div class="ai-card">'
+      +'<div class="ai-heading"><span style="font-size:16px">✦</span> Write with AI</div>'
+      +'<input type="text" class="ai-prompt" placeholder="Topic or paste a URL to summarise…" value="'+S.aiPrompt.replace(/"/g,"&quot;")+'" oninput="S.aiPrompt=this.value" onkeydown="if(event.key===\'Enter\'&&!S.generating)doGenerate()" style="margin-bottom:10px">'
+      +'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+      +(S.aiEnabled
+        ?'<button class="btn ai" onclick="doGenerate()" '+(S.generating?"disabled":"")+'>✦ '+(S.generating?"Generating…":"Generate with AI")+'</button>'
+        :'<button class="btn ai" disabled>✦ Generate with AI</button><span class="ai-tip">Add <code>ANTHROPIC_API_KEY</code> to Render env to enable</span>'
+      )
+      +(S.aiErr?'<span style="font-size:11px;color:#b91c1c;margin-top:4px">'+S.aiErr+'</span>':"")
+      +'</div></div>'
+
+      +'<div class="card" style="padding:0;overflow:visible">'
+      +'<div style="padding:12px 16px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f0efe8">'
+      +'<span class="card-title" style="margin:0">Article</span>'
+      +'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+      +'<button class="btn" style="font-size:12px;padding:5px 10px" id="clear-import-btn" onclick="clearImport()" style="display:none">✕ Clear import</button>'
+      +(S.srcLbl?'<span class="badge ok" style="font-size:11px">'+S.srcLbl+'</span>':"")
+      +'</div></div>'
+
+      +'<div style="padding:14px 16px 0">'
+      +'<input type="text" id="article-title" style="font-size:15px;font-weight:600;margin-bottom:12px;border-color:#e0dfd8" placeholder="Article title…" value="'+S.title.replace(/"/g,"&quot;")+'" oninput="S.title=this.value">'
+      +'</div>'
+
+      +'<div style="padding:0 16px 4px">'
+      +'<div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">'
+      +'<input type="text" id="fetch-url-input" style="font-size:12px;flex:1" placeholder="Import from URL (community article or any page)…">'
+      +'<button class="btn" style="font-size:12px;padding:5px 12px;white-space:nowrap" onclick="doFetchUrl()" '+(S.importing?"disabled":"")+'>⬇ '+(S.importing?"Fetching…":"Import")+'</button>'
+      +'</div></div>'
+
+      +'<div style="padding:0 16px 16px">'
+      +'<div id="imported-preview"></div>'
+      +'<div id="editor-wrap" class="editor-wrap"><div id="quill-editor"></div></div>'
+      +'<div class="hint" style="text-align:right">'+ptxt.length.toLocaleString()+' chars · '+wc+' words</div>'
+      +'</div></div>'
+
+      +'<div style="display:flex;gap:8px">'
+      +'<button class="btn p" onclick="var b=rawBodyHtml||S.body;if(!S.title.trim()||!htmlToText(b).trim()){alert(\'Add a title and body first.\');}else{set({step:2});loadCats();}">Next: Publish settings →</button>'
+      +'<button class="btn" onclick="set({step:0})">← Back</button>'
+      +'</div>';
+  }
+
+  else if(S.step===2){
+    var chips=LANGS.map(function(l){var on=S.langs.has(l.c);return'<div class="chip'+(on?" on":"")+'" onclick="toggleLang(\''+l.c+'\')" style="'+(l.c==="en"?"cursor:default":"")+'">'+l.f+' '+l.l+(l.c==="en"?' <span style="font-size:9px;opacity:.5">(source)</span>':on?' ✓':'')+'</div>';}).join("");
+    var catBlock=S.catLoading?'<div class="hint">Fetching from Gainsight API…</div>':(S.catErr?'<div class="err">⚠ '+S.catErr+'<br><span style="font-size:10px;margin-top:3px;display:block">Enter Category ID manually below.</span></div>':"");
+    if(S.cats.length>0)catBlock+='<select id="fc" onchange="S.catId=this.value"><option value="">Select a section…</option>'+S.cats.map(function(c){return'<option value="'+c.id+'"'+(S.catId==c.id?" selected":"")+'>'+(c.name||c.title||"Category "+c.id)+'</option>';}).join("")+'</select>';
+    else if(!S.catLoading)catBlock+='<div style="margin-top:8px"><label>Category ID (manual)</label><input type="text" placeholder="e.g. 24" value="'+S.catId+'" oninput="S.catId=this.value"></div>';
+
+    var prevBlock="";
+    if(S.langs.size>1){
+      prevBlock='<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem"><span class="card-title" style="margin:0">Translation preview</span><button class="btn" onclick="doPreview()" '+(S.prevLoading?"disabled":"")+'>👁 '+(S.prevLoading?"Translating…":"Preview all")+'</button></div>';
+      if(S.showPrev){
+        var tabs=Array.from(S.langs).map(function(c){var l=LANGS.find(function(x){return x.c===c;});return'<button class="tab'+(S.prevLang===c?" on":"")+'" onclick="S.prevLang=\''+c+'\';draw()">'+l.f+' '+l.l+'</button>';}).join("");
+        prevBlock+='<div class="tab-bar">'+tabs+'</div>';
+        var ptx=S.tx[S.prevLang];
+        prevBlock+=ptx?'<div style="font-size:13px;font-weight:600;margin-bottom:6px">'+ptx.title+'</div><div class="pbox">'+htmlToText(ptx.body).substring(0,300)+'…</div>':'<div class="hint">Translating…</div>';
+      }
+      prevBlock+='</div>';
+    }
+
+    var prog="";
+    if(S.jobs.length>0){
+      prog='<div class="card" style="margin-top:8px"><div class="card-title">Publishing progress</div>'
+        +S.jobs.map(function(j){return'<div class="prow"><div class="dot" style="background:'+dc(j.status)+';'+(j.status==="working"?"animation:pulse 1s infinite;":"")+'"></div><span style="min-width:100px">'+j.f+' '+j.l+'</span><span style="color:#6b6b67">'+(j.status==="pending"?"Waiting…":j.status==="working"?"→ "+(S.publishAsDraft?"saving draft…":"publishing…"):j.status==="done"?(S.publishAsDraft?"✓ Saved as draft":"✓ Published"):j.err)+'</span>'+(j.link?'<a href="'+j.link+'" target="_blank" style="margin-left:auto;font-size:11px">View →</a>':"")+'</div>';}).join("")
+        +'</div>';
+    }
+
+    h=stepBar()
+      +'<div class="card"><div class="card-title">Select publish languages</div><div class="g4">'+chips+'</div><div class="hint" style="margin-top:6px">'+S.langs.size+' language'+(S.langs.size>1?"s":"")+ ' selected — Google Translate (free) runs before each publish</div></div>'
+      +'<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem"><span class="card-title" style="margin:0">Community section</span><button class="btn" style="font-size:11px" onclick="loadCats()">↻ '+(S.catLoading?"Loading…":"Refresh from API")+'</button></div>'+catBlock+'</div>'
+      +prevBlock
+      +'<div class="card" style="display:flex;align-items:center;gap:10px;padding:10px 14px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;margin:0"><input type="checkbox" '+(S.publishAsDraft?"checked":"")+' onchange="S.publishAsDraft=this.checked;draw();" style="width:15px;height:15px;cursor:pointer;accent-color:#6366f1"> <span><strong>Save as draft</strong> <span style="color:#6b6b67;font-size:12px">— stays private until manually published in Control Panel</span></span></label></div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn p" onclick="doPublish()" '+(S.publishing||!S.catId?"disabled":"")+'>🚀 '+(S.publishing?"Publishing…":(S.publishAsDraft?"Save as Draft":"Translate & Publish")+" ("+S.langs.size+" lang"+(S.langs.size>1?"s":"")+")")+'</button><button class="btn" onclick="set({step:1})">← Back to editor</button></div>'
+      +prog;
+  }
+
+  else if(S.step===3){
+    var done=S.jobs.filter(function(j){return j.status==="done";});
+    h=stepBar()
+      +'<div class="ok-box"><strong style="display:block;margin-bottom:4px;font-size:14px">'+(S.publishAsDraft?"📝 Saved as draft!":"🎉 Published successfully!")+'</strong>"'+S.title+'" '+(S.publishAsDraft?"saved as draft":"published")+' in '+done.length+' language'+(done.length>1?"s":"")+'.'+(S.publishAsDraft?' <span style="font-size:12px">Go to Control Panel → Content → Articles to review and publish.</span>':'')+'</div>'
+      +'<div class="card"><div class="card-title">Publish summary</div>'
+      +S.jobs.map(function(j){return'<div class="prow"><div class="dot" style="background:'+dc(j.status)+'"></div><span style="min-width:100px">'+j.f+' '+j.l+'</span><span style="font-size:12px;color:'+(j.status==="done"?"#15803d":"#b91c1c")+'">'+(j.status==="done"?"✓ Done":j.err)+'</span>'+(j.link?'<a href="'+j.link+'" target="_blank" style="margin-left:auto;font-size:11px">View →</a>':"")+'</div>';}).join("")+'</div>'
+      +'<div style="display:flex;gap:8px"><button class="btn p" onclick="rawBodyHtml=null;set({step:1,title:\'\',body:\'\',srcLbl:\'\',jobs:[],langs:new Set([\'en\']),tx:{},catId:\'\',showPrev:false,prevLoading:false,aiPrompt:\'\',aiErr:\'\'})">+ Publish another</button><button class="btn" onclick="rawBodyHtml=null;set({step:0,token:null,jobs:[]})">Switch community</button></div>';
+  }
+
+  el.innerHTML=h;
+  if(S.step===1){
+    initQuill();
+    var clearBtn=document.getElementById("clear-import-btn");
+    if(clearBtn)clearBtn.style.display=rawBodyHtml?"inline-flex":"none";
+    var preview=document.getElementById("imported-preview");
+    if(preview)preview.style.display=rawBodyHtml?"block":"none";
+    var edwrap=document.getElementById("editor-wrap");
+    if(edwrap)edwrap.style.display=rawBodyHtml?"none":"block";
+    if(rawBodyHtml&&preview)preview.innerHTML=rawBodyHtml;
+  }
+}
+draw();
+</script>
+</body>
+</html>

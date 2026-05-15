@@ -3,7 +3,6 @@ const express = require("express");
 const cors    = require("cors");
 const fetch   = require("node-fetch");
 const path    = require("path");
-const fs      = require("fs");
 
 const app  = express();
 const PORT = 3001;
@@ -12,18 +11,12 @@ app.use(cors());
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
-// Serve the HTML file explicitly — works regardless of working directory
-app.get("/", (req, res) => {
-  const htmlPath = path.join(__dirname, "community-publisher-agent (2).html");
-  if (fs.existsSync(htmlPath)) {
-    res.sendFile(htmlPath);
-  } else {
-    res.status(404).send("community-publisher-agent (2).html not found. Make sure it's in the same folder as server.js.");
-  }
+app.get("/", (_, res) => {
+  res.sendFile(path.join(__dirname, "app.html"));
 });
 
-app.get("/community-publisher-agent.html", (req, res) => {
-  res.sendFile(path.join(__dirname, "community-publisher-agent (2).html"));
+app.get("/app", (req, res) => {
+  res.sendFile(path.join(__dirname, "app.html"));
 });
 
 // ── AI provider setup ─────────────────────────────────────────────────────────
