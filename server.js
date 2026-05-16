@@ -474,20 +474,18 @@ app.post("/widget", async (req, res) => {
     // ── categories ────────────────────────────────────────────────────────────
     // Pass lang= to get language-specific sections (e.g. lang=fr for French community)
     if (action === "categories") {
-      const token  = await widgetToken();
-      const params = new URLSearchParams({ page: 1, pageSize: 50 });
-      if (p.lang && p.lang !== "en") params.set("lang", p.lang);
-      console.log(`→ categories lang=${p.lang || "en"}`);
-      const r    = await fetch(`${W_REGION}/v2/categories?${params}`, { headers: { Authorization: `Bearer ${token}` } });
-      const data = await r.json();
+      // inSided v2 /v2/categories has no language filter — returns all sections
+      // for the whole community (English, French, Spanish, etc. in one list).
+      const token = await widgetToken();
+      const r     = await fetch(`${W_REGION}/v2/categories?page=1&pageSize=100`, { headers: { Authorization: `Bearer ${token}` } });
+      const data  = await r.json();
       if (!r.ok) return res.status(r.status).json(data);
-      // Normalize to a flat array regardless of API response shape
       const list = Array.isArray(data) ? data
         : Array.isArray(data.result) ? data.result
         : Array.isArray(data.result?.items) ? data.result.items
         : Array.isArray(data.items) ? data.items
         : [];
-      console.log(`← categories lang=${p.lang || "en"}: ${list.length} items`);
+      console.log(`← categories: ${list.length} items`);
       return res.json(list);
     }
 
