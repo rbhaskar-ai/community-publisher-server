@@ -470,21 +470,17 @@ app.post("/widget", async (req, res) => {
       return r.ok ? res.json(data) : res.status(r.status).json(data);
     }
 
-    // ── translate — Claude if AI available, Google Translate as fallback ──────
+    // ── translate — Google Translate (free, no key needed) ──────────────────
     if (action === "translate") {
       if (!p.targetLang || !p.title || !p.body) return res.status(400).json({ error: "targetLang, title and body required" });
-      console.log(`→ translate [${p.targetLang}] "${p.title.substring(0, 40)}" (${p.body.length} chars)`);
+      const langCode = LANG_CODES[p.targetLang];
+      if (!langCode) return res.status(400).json({ error: `Unknown language: ${p.targetLang}` });
+      console.log(`→ translate [${p.targetLang}/${langCode}] "${p.title.substring(0, 40)}" (${p.body.length} chars)`);
       try {
-        let txTitle, txBody;
-        if (ANTHROPIC_ENABLED || VERTEX_ENABLED) {
-          console.log(`   using Claude translation`);
-          ({ title: txTitle, body: txBody } = await claudeTranslate(p.title, p.body, p.targetLang));
-        } else {
-          console.log(`   using Google Translate`);
-          const langCode = LANG_CODES[p.targetLang];
-          if (!langCode) return res.status(400).json({ error: `Unknown language: ${p.targetLang}` });
-          [txTitle, txBody] = await Promise.all([googleTranslate(p.title, langCode), googleTranslate(p.body, langCode)]);
-        }
+        const [txTitle, txBody] = await Promise.all([
+          googleTranslate(p.title, langCode),
+          googleTranslate(p.body, langCode),
+        ]);
         console.log(`← translate [${p.targetLang}] done`);
         return res.json({ title: txTitle || p.title, body: txBody || p.body });
       } catch (e) {
@@ -512,11 +508,9 @@ app.post("/widget", async (req, res) => {
             );
             if (dupes.length > 0) {
               console.log(`⚠️  duplicate detected for "${p.title.substring(0, 40)}": ${dupes.length} match(es)`);
-              return res.json({
-                duplicateWarning: true,
-                message: `Found ${dupes.length} article(s) with a similar title already in the community`,
-                existingArticles: dupes.map(d => ({ id: d.id, title: d.title, url: d.url, categoryName: d.categoryName })),
-                hint: "Pass skipDuplicateCheck: true to publish anyway",
+              const links = dupes.map(d => d.title).join(", ");
+              return res.status(409).json({
+                error: `⚠️ Similar article already exists: "${links}". Edit the existing article instead, or publish to a different section.`,
               });
             }
           }
@@ -658,9 +652,9 @@ app.post("/widget", async (req, res) => {
       // Duplicate detection before queuing
       if (!p.skipDuplicateCheck && title) {
         try {
-          const token = await widgetToken();
-          const sr    = await fetch(`${W_REGION}/search?${new URLSearchParams({ q: title, page: 1 })}`, {
-            headers: { Authorization: `Bearer ${token}` },
+          const dupToken = await widgetToken();
+          const sr       = await fetch(`${W_REGION}/search?${new URLSearchParams({ q: title, page: 1 })}`, {
+            headers: { Authorization: `Bearer ${dupToken}` },
           });
           if (sr.ok) {
             const sd    = await sr.json();
@@ -669,11 +663,9 @@ app.post("/widget", async (req, res) => {
             );
             if (dupes.length > 0) {
               console.log(`⚠️  publish-async duplicate: "${title.substring(0, 40)}" — ${dupes.length} match(es)`);
-              return res.json({
-                duplicateWarning: true,
-                message: `Found ${dupes.length} article(s) with a similar title already in the community`,
-                existingArticles: dupes.map(d => ({ id: d.id, title: d.title, url: d.url, categoryName: d.categoryName })),
-                hint: "Pass skipDuplicateCheck: true to publish anyway",
+              const links = dupes.map(d => d.title).join(", ");
+              return res.status(409).json({
+                error: `⚠️ Similar article already exists: "${links}". Edit the existing article instead, or publish to a different section.`,
               });
             }
           }
@@ -788,7 +780,7 @@ app.listen(PORT, () => {
   console.log(`\n✅ Community Publisher Agent — running`);
   console.log(`   http://localhost:${PORT}`);
   console.log(`✅ AI provider  : ${AI_PROVIDER}`);
-  console.log(`✅ Translation  : ${(ANTHROPIC_ENABLED || VERTEX_ENABLED) ? "Claude (AI)" : "Google Translate (free fallback)"}`);
+  console.log(`✅ Translation  : Google Translate (free)`);
   console.log(`✅ Publish log  : ${LOG_FILE}`);
   console.log(`✅ Agent actions: categories | translate | articles | generate | fetch-article`);
   console.log(`                  publish-async | job-status | publish-history | suggest-topics`);
