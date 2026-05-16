@@ -178,6 +178,11 @@ function titleSimilarity(a, b) {
   return union === 0 ? 0 : intersection / union;
 }
 
+const LANG_LABELS = {
+  en: "English", es: "Spanish", fr: "French", de: "German",
+  pt: "Portuguese (Brazilian)", ja: "Japanese", ko: "Korean", zh: "Simplified Chinese",
+};
+
 // ── Async job queue ───────────────────────────────────────────────────────────
 // publish-async submits all languages as one job; job-status polls progress.
 const JOB_STORE = new Map();
@@ -263,9 +268,13 @@ async function runPublishJob(jobId) {
       task.url       = cdata.seoCommunityUrl || null;
 
       logPublish({
-        lang: task.lang, title: txTitle,
-        categoryId: job.categoryId, articleId: cdata.id,
-        url: task.url, isDraft: job.isDraft,
+        lang:          task.lang,
+        title:         txTitle,
+        originalTitle: job.title,
+        categoryId:    job.categoryId,
+        articleId:     cdata.id,
+        url:           task.url,
+        isDraft:       job.isDraft,
       });
     } catch (e) {
       task.status = "error";
@@ -495,22 +504,36 @@ app.post("/widget", async (req, res) => {
       const authorId = p.authorId || W_AUTHOR_ID;
       console.log(`→ widget create: "${(p.title || "").substring(0, 40)}" cat=${p.categoryId}`);
 
-      // Duplicate detection — search community for similar title first
-      if (!p.skipDuplicateCheck && p.title) {
+      // For translations: check publish log — was this English article already published in this language?
+      if (p.lang && p.lang !== "en" && p.originalTitle) {
+        const langLabel = LANG_LABELS[p.lang] || p.lang;
+        const existing  = readLog().find(e =>
+          e.lang === p.lang && e.originalTitle && titleSimilarity(e.originalTitle, p.originalTitle) >= 0.6
+        );
+        if (existing) {
+          console.log(`⚠️  lang-duplicate [${p.lang}] "${p.originalTitle.substring(0, 40)}"`);
+          return res.status(409).json({
+            error: `⚠️ This article has already been translated and published in ${langLabel}.${existing.url ? " View it here → " + existing.url : ""}`,
+          });
+        }
+      }
+
+      // For English originals: search community for a similar title
+      if ((!p.lang || p.lang === "en") && !p.skipDuplicateCheck && p.title) {
         try {
           const sr = await fetch(`${W_REGION}/search?${new URLSearchParams({ q: p.title, page: 1 })}`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (sr.ok) {
-            const sd = await sr.json();
+            const sd    = await sr.json();
             const dupes = (sd.community || []).filter(item =>
               item.contentType === "article" && titleSimilarity(item.title, p.title) >= 0.6
             );
             if (dupes.length > 0) {
               console.log(`⚠️  duplicate detected for "${p.title.substring(0, 40)}": ${dupes.length} match(es)`);
-              const links = dupes.map(d => d.title).join(", ");
+              const names = dupes.map(d => d.title).join(", ");
               return res.status(409).json({
-                error: `⚠️ Similar article already exists: "${links}". Edit the existing article instead, or publish to a different section.`,
+                error: `⚠️ Similar article already exists: "${names}". Edit the existing article instead, or pass skipDuplicateCheck: true to override.`,
               });
             }
           }
@@ -540,12 +563,13 @@ app.post("/widget", async (req, res) => {
 
       // Log this publish
       logPublish({
-        lang: p.lang || "en",
-        title: p.title,
-        categoryId: p.categoryId,
-        articleId: data.id,
-        url: data.seoCommunityUrl || null,
-        isDraft: !p.publishAfterCreate,
+        lang:          p.lang || "en",
+        title:         p.title,
+        originalTitle: p.originalTitle || p.title,
+        categoryId:    p.categoryId,
+        articleId:     data.id,
+        url:           data.seoCommunityUrl || null,
+        isDraft:       !p.publishAfterCreate,
       });
 
       return res.json(data);
@@ -713,11 +737,7 @@ app.post("/widget", async (req, res) => {
 
     // ── language-stats — article counts + recent URLs grouped by language ───────
     if (action === "language-stats") {
-      const LANG_LABELS = {
-        en: "English", es: "Spanish", fr: "French", de: "German",
-        pt: "Portuguese (Brazilian)", ja: "Japanese", ko: "Korean", zh: "Simplified Chinese",
-      };
-      const log      = readLog();
+      const log = readLog();
       const statsMap = {};
       for (const entry of log) {
         const lang = entry.lang || "en";
