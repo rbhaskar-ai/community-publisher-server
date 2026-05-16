@@ -30,6 +30,10 @@ const GEMINI_KEY     = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL   = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 const GEMINI_ENABLED = !!(GEMINI_KEY && !GEMINI_KEY.includes("paste-your-key"));
 
+const GROQ_KEY     = process.env.GROQ_API_KEY;
+const GROQ_MODEL   = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+const GROQ_ENABLED = !!(GROQ_KEY && !GROQ_KEY.includes("paste-your-key"));
+
 const VERTEX_SA      = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
 const VERTEX_PROJ    = process.env.GOOGLE_PROJECT_ID;
 const VERTEX_LOC     = process.env.VERTEX_LOCATION || "us-central1";
@@ -38,6 +42,7 @@ const VERTEX_ENABLED = !!(VERTEX_SA && VERTEX_PROJ);
 
 const AI_PROVIDER = ANTHROPIC_ENABLED ? "anthropic"
                   : GEMINI_ENABLED    ? "gemini"
+                  : GROQ_ENABLED      ? "groq"
                   : VERTEX_ENABLED    ? "vertex"
                   : "disabled";
 
@@ -63,7 +68,7 @@ async function vertexToken() {
   return _vtok.token;
 }
 
-// callAI — priority: Anthropic → Gemini → Vertex
+// callAI — priority: Anthropic → Gemini → Groq → Vertex
 async function callAI(userContent, systemPrompt = null) {
   if (ANTHROPIC_ENABLED) {
     const body = {
@@ -95,6 +100,19 @@ async function callAI(userContent, systemPrompt = null) {
     if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
     return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
+  if (GROQ_ENABLED) {
+    const messages = [];
+    if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+    messages.push({ role: "user", content: userContent });
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: GROQ_MODEL, messages, max_tokens: 4096, temperature: 0.7 }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
+    return d.choices?.[0]?.message?.content || "";
+  }
   if (VERTEX_ENABLED) {
     const token = await vertexToken();
     const combined = systemPrompt ? `${systemPrompt}\n\n${userContent}` : userContent;
@@ -108,7 +126,7 @@ async function callAI(userContent, systemPrompt = null) {
     if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
     return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
-  throw new Error("No AI provider configured. Add GEMINI_API_KEY or ANTHROPIC_API_KEY to environment.");
+  throw new Error("No AI provider configured. Add GROQ_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY to environment.");
 }
 
 // ── Claude translation ────────────────────────────────────────────────────────
@@ -145,7 +163,7 @@ app.get("/health", (_, res) => res.json({ status: "ok", port: PORT, ai: AI_PROVI
 
 // ── Shared generate helper ────────────────────────────────────────────────────
 async function runGenerate(prompt, url) {
-  if (AI_PROVIDER === "disabled") throw new Error("No AI provider configured. Add GEMINI_API_KEY or ANTHROPIC_API_KEY to environment.");
+  if (AI_PROVIDER === "disabled") throw new Error("No AI provider configured. Add GROQ_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY to environment.");
   const instruction = "Line 1 = plain title (no # prefix). Then 4–6 paragraphs. Plain text, no markdown. 400–600 words. Practical and educational.";
   let content;
   if (url) {
