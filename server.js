@@ -145,7 +145,7 @@ app.get("/health", (_, res) => res.json({ status: "ok", port: PORT, ai: AI_PROVI
 
 // ── Shared generate helper ────────────────────────────────────────────────────
 async function runGenerate(prompt, url) {
-  if (!ANTHROPIC_ENABLED && !VERTEX_ENABLED) throw new Error("No AI provider configured. Add ANTHROPIC_API_KEY to environment.");
+  if (AI_PROVIDER === "disabled") throw new Error("No AI provider configured. Add GEMINI_API_KEY or ANTHROPIC_API_KEY to environment.");
   const instruction = "Line 1 = plain title (no # prefix). Then 4–6 paragraphs. Plain text, no markdown. 400–600 words. Practical and educational.";
   let content;
   if (url) {
