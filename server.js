@@ -472,10 +472,14 @@ app.post("/widget", async (req, res) => {
   try {
 
     // ── categories ────────────────────────────────────────────────────────────
+    // Pass lang= to get language-specific sections (e.g. lang=fr for French community)
     if (action === "categories") {
-      const token = await widgetToken();
-      const r     = await fetch(`${W_REGION}/v2/categories?page=1&pageSize=50`, { headers: { Authorization: `Bearer ${token}` } });
-      const data  = await r.json();
+      const token  = await widgetToken();
+      const params = new URLSearchParams({ page: 1, pageSize: 50 });
+      if (p.lang && p.lang !== "en") params.set("lang", p.lang);
+      console.log(`→ categories lang=${p.lang || "en"}`);
+      const r    = await fetch(`${W_REGION}/v2/categories?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await r.json();
       return r.ok ? res.json(data) : res.status(r.status).json(data);
     }
 
