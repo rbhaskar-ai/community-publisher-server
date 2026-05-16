@@ -651,17 +651,25 @@ app.post("/widget", async (req, res) => {
       const r    = await fetch(`${W_REGION}/search?${params}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await r.json();
       if (!r.ok) return res.status(r.status).json(data);
-      const results = (data.community || []).map(item => ({
-        id: item.id,
-        title: item.title,
-        url: item.url,
-        contentType: item.contentType,
-        categoryId: item.categoryId,
-        categoryName: item.categoryName,
-        authorName: item.authorName,
-        createdAt: item.createdAt,
-        snippet: (item.content || "").substring(0, 200),
-      }));
+      const results = (data.community || []).map(item => {
+        const plainSnippet = (item.content || "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+          .replace(/\s+/g, " ").trim()
+          .substring(0, 150);
+        return {
+          id: item.id,
+          title: item.title,
+          url: item.url,
+          contentType: item.contentType,
+          categoryId: item.categoryId,
+          categoryName: item.categoryName,
+          authorName: item.authorName,
+          createdAt: item.createdAt,
+          snippet: plainSnippet || null,
+        };
+      });
       console.log(`← search-articles: ${results.length} results`);
       return res.json({ count: results.length, results });
     }
