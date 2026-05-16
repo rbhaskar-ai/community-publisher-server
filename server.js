@@ -168,6 +168,16 @@ function logPublish(entry) {
   console.log(`📝 logged: "${(entry.title || "").substring(0, 50)}" [${entry.lang}]`);
 }
 
+// ── Title similarity — Jaccard on meaningful words ────────────────────────────
+function titleSimilarity(a, b) {
+  const norm = s => s.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+  const words = s => new Set(norm(s).split(/\s+/).filter(w => w.length > 2));
+  const wA = words(a), wB = words(b);
+  const intersection = [...wA].filter(w => wB.has(w)).length;
+  const union = new Set([...wA, ...wB]).size;
+  return union === 0 ? 0 : intersection / union;
+}
+
 // ── Async job queue ───────────────────────────────────────────────────────────
 // publish-async submits all languages as one job; job-status polls progress.
 const JOB_STORE = new Map();
@@ -488,6 +498,32 @@ app.post("/widget", async (req, res) => {
       const token    = await widgetToken();
       const authorId = p.authorId || W_AUTHOR_ID;
       console.log(`→ widget create: "${(p.title || "").substring(0, 40)}" cat=${p.categoryId}`);
+
+      // Duplicate detection — search community for similar title first
+      if (!p.skipDuplicateCheck && p.title) {
+        try {
+          const sr = await fetch(`${W_REGION}/search?${new URLSearchParams({ q: p.title, page: 1 })}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (sr.ok) {
+            const sd = await sr.json();
+            const dupes = (sd.community || []).filter(item =>
+              item.contentType === "article" && titleSimilarity(item.title, p.title) >= 0.6
+            );
+            if (dupes.length > 0) {
+              console.log(`⚠️  duplicate detected for "${p.title.substring(0, 40)}": ${dupes.length} match(es)`);
+              return res.json({
+                duplicateWarning: true,
+                message: `Found ${dupes.length} article(s) with a similar title already in the community`,
+                existingArticles: dupes.map(d => ({ id: d.id, title: d.title, url: d.url, categoryName: d.categoryName })),
+                hint: "Pass skipDuplicateCheck: true to publish anyway",
+              });
+            }
+          }
+        } catch (e) {
+          console.warn("duplicate check skipped:", e.message);
+        }
+      }
       const r    = await fetch(`${W_REGION}/v2/articles/create?authorId=${authorId}&moderatorId=${authorId}`, {
         method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ title: p.title, content: p.content, categoryId: parseInt(p.categoryId) }),
@@ -584,12 +620,67 @@ app.post("/widget", async (req, res) => {
       catch (e) { return res.status(500).json({ error: e.message }); }
     }
 
+    // ── search-articles — full-text search via inSided Search API ───────────────
+    if (action === "search-articles") {
+      if (!p.q) return res.status(400).json({ error: "q required" });
+      const token  = await widgetToken();
+      const params = new URLSearchParams({ q: p.q, page: p.page || 1 });
+      const types  = p.contentTypes?.length ? p.contentTypes : ["article"];
+      types.forEach(t => params.append("contentTypes", t));
+      if (p.categoryIds?.length) p.categoryIds.forEach(id => params.append("categoryIds", id));
+      if (p.tags?.length) p.tags.forEach(t => params.append("tags", t));
+      console.log(`→ search-articles: "${p.q}" types=${types.join(",")}`);
+      const r    = await fetch(`${W_REGION}/search?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await r.json();
+      if (!r.ok) return res.status(r.status).json(data);
+      const results = (data.community || []).map(item => ({
+        id: item.id,
+        title: item.title,
+        url: item.url,
+        contentType: item.contentType,
+        categoryId: item.categoryId,
+        categoryName: item.categoryName,
+        authorName: item.authorName,
+        createdAt: item.createdAt,
+        snippet: (item.content || "").substring(0, 200),
+      }));
+      console.log(`← search-articles: ${results.length} results`);
+      return res.json({ count: results.length, results });
+    }
+
     // ── publish-async — queue multi-language publish job ──────────────────────
     // Returns { jobId } immediately. Poll with action=job-status.
     if (action === "publish-async") {
       const { title, body, categoryId, langs, isDraft } = p;
       if (!title || !body || !categoryId || !langs?.length)
         return res.status(400).json({ error: "title, body, categoryId, langs[] required" });
+
+      // Duplicate detection before queuing
+      if (!p.skipDuplicateCheck && title) {
+        try {
+          const token = await widgetToken();
+          const sr    = await fetch(`${W_REGION}/search?${new URLSearchParams({ q: title, page: 1 })}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (sr.ok) {
+            const sd    = await sr.json();
+            const dupes = (sd.community || []).filter(item =>
+              item.contentType === "article" && titleSimilarity(item.title, title) >= 0.6
+            );
+            if (dupes.length > 0) {
+              console.log(`⚠️  publish-async duplicate: "${title.substring(0, 40)}" — ${dupes.length} match(es)`);
+              return res.json({
+                duplicateWarning: true,
+                message: `Found ${dupes.length} article(s) with a similar title already in the community`,
+                existingArticles: dupes.map(d => ({ id: d.id, title: d.title, url: d.url, categoryName: d.categoryName })),
+                hint: "Pass skipDuplicateCheck: true to publish anyway",
+              });
+            }
+          }
+        } catch (e) {
+          console.warn("publish-async duplicate check skipped:", e.message);
+        }
+      }
 
       const jobId = newJobId();
       const job = {
@@ -626,6 +717,29 @@ app.post("/widget", async (req, res) => {
       const limit = Math.min(parseInt(p.limit) || 50, 200);
       const log   = readLog().slice(0, limit);
       return res.json({ count: log.length, articles: log });
+    }
+
+    // ── language-stats — article counts + recent URLs grouped by language ───────
+    if (action === "language-stats") {
+      const LANG_LABELS = {
+        en: "English", es: "Spanish", fr: "French", de: "German",
+        pt: "Portuguese (Brazilian)", ja: "Japanese", ko: "Korean", zh: "Simplified Chinese",
+      };
+      const log      = readLog();
+      const statsMap = {};
+      for (const entry of log) {
+        const lang = entry.lang || "en";
+        if (!statsMap[lang]) statsMap[lang] = { lang, label: LANG_LABELS[lang] || lang, count: 0, articles: [] };
+        statsMap[lang].count++;
+        if (entry.url && statsMap[lang].articles.length < 20) {
+          statsMap[lang].articles.push({
+            title: entry.title, url: entry.url,
+            publishedAt: entry.publishedAt, isDraft: !!entry.isDraft,
+          });
+        }
+      }
+      const languages = Object.values(statsMap).sort((a, b) => b.count - a.count);
+      return res.json({ totalArticles: log.length, languages });
     }
 
     // ── suggest-topics — Claude analyses the log and suggests new topics ──────
