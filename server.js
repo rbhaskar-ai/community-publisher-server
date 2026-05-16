@@ -480,7 +480,15 @@ app.post("/widget", async (req, res) => {
       console.log(`→ categories lang=${p.lang || "en"}`);
       const r    = await fetch(`${W_REGION}/v2/categories?${params}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await r.json();
-      return r.ok ? res.json(data) : res.status(r.status).json(data);
+      if (!r.ok) return res.status(r.status).json(data);
+      // Normalize to a flat array regardless of API response shape
+      const list = Array.isArray(data) ? data
+        : Array.isArray(data.result) ? data.result
+        : Array.isArray(data.result?.items) ? data.result.items
+        : Array.isArray(data.items) ? data.items
+        : [];
+      console.log(`← categories lang=${p.lang || "en"}: ${list.length} items`);
+      return res.json(list);
     }
 
     // ── translate — Google Translate (free, no key needed) ──────────────────
