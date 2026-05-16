@@ -26,13 +26,20 @@ const crypto = require("crypto");
 const ANTHROPIC_KEY     = process.env.ANTHROPIC_API_KEY;
 const ANTHROPIC_ENABLED = !!(ANTHROPIC_KEY && !ANTHROPIC_KEY.includes("paste-your-key"));
 
+const GEMINI_KEY     = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL   = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const GEMINI_ENABLED = !!(GEMINI_KEY && !GEMINI_KEY.includes("paste-your-key"));
+
 const VERTEX_SA      = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
 const VERTEX_PROJ    = process.env.GOOGLE_PROJECT_ID;
 const VERTEX_LOC     = process.env.VERTEX_LOCATION || "us-central1";
 const VERTEX_MODEL   = process.env.VERTEX_MODEL    || "gemini-1.5-flash";
 const VERTEX_ENABLED = !!(VERTEX_SA && VERTEX_PROJ);
 
-const AI_PROVIDER = ANTHROPIC_ENABLED ? "anthropic" : VERTEX_ENABLED ? "vertex" : "disabled";
+const AI_PROVIDER = ANTHROPIC_ENABLED ? "anthropic"
+                  : GEMINI_ENABLED    ? "gemini"
+                  : VERTEX_ENABLED    ? "vertex"
+                  : "disabled";
 
 // Vertex token cache
 let _vtok = { token: null, exp: 0 };
@@ -56,7 +63,7 @@ async function vertexToken() {
   return _vtok.token;
 }
 
-// callAI — optional systemPrompt supported (Anthropic top-level; prepended for Vertex)
+// callAI — priority: Anthropic → Gemini → Vertex
 async function callAI(userContent, systemPrompt = null) {
   if (ANTHROPIC_ENABLED) {
     const body = {
@@ -73,6 +80,21 @@ async function callAI(userContent, systemPrompt = null) {
     if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
     return d.content?.[0]?.text || "";
   }
+  if (GEMINI_ENABLED) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
+    const body = {
+      contents: [{ parts: [{ text: userContent }] }],
+      generationConfig: { maxOutputTokens: 4096, temperature: 0.7 },
+    };
+    if (systemPrompt) body.system_instruction = { parts: [{ text: systemPrompt }] };
+    const r = await fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
+    return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  }
   if (VERTEX_ENABLED) {
     const token = await vertexToken();
     const combined = systemPrompt ? `${systemPrompt}\n\n${userContent}` : userContent;
@@ -86,7 +108,7 @@ async function callAI(userContent, systemPrompt = null) {
     if (!r.ok) throw new Error(d.error?.message || JSON.stringify(d));
     return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
-  throw new Error("No AI provider configured. Add ANTHROPIC_API_KEY to environment.");
+  throw new Error("No AI provider configured. Add GEMINI_API_KEY or ANTHROPIC_API_KEY to environment.");
 }
 
 // ── Claude translation ────────────────────────────────────────────────────────
@@ -822,6 +844,6 @@ app.listen(PORT, () => {
   console.log(`✅ Publish log  : ${LOG_FILE}`);
   console.log(`✅ Agent actions: categories | translate | articles | generate | fetch-article`);
   console.log(`                  publish-async | job-status | publish-history | suggest-topics`);
-  if (AI_PROVIDER === "disabled") console.log(`⚠️  No AI key — add ANTHROPIC_API_KEY to enable generation, Claude translation, and topic suggestions`);
+  if (AI_PROVIDER === "disabled") console.log(`⚠️  No AI key — add GEMINI_API_KEY or ANTHROPIC_API_KEY to enable generation and topic suggestions`);
   console.log("");
 });
