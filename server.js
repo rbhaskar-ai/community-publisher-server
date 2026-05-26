@@ -40,6 +40,9 @@ const VERTEX_LOC     = process.env.VERTEX_LOCATION || "us-central1";
 const VERTEX_MODEL   = process.env.VERTEX_MODEL    || "gemini-1.5-flash";
 const VERTEX_ENABLED = !!(VERTEX_SA && VERTEX_PROJ);
 
+const WIDGET_SECRET         = process.env.WIDGET_SECRET || "";
+const WIDGET_SECRET_ENABLED = WIDGET_SECRET.length > 0;
+
 const AI_PROVIDER = ANTHROPIC_ENABLED ? "anthropic"
                   : GEMINI_ENABLED    ? "gemini"
                   : GROQ_ENABLED      ? "groq"
@@ -514,6 +517,8 @@ async function widgetToken() {
 }
 
 app.post("/widget", async (req, res) => {
+  if (WIDGET_SECRET_ENABLED && req.headers["x-widget-secret"] !== WIDGET_SECRET)
+    return res.status(401).json({ error: "Unauthorized" });
   const { action, ...p } = req.body || {};
   if (!action) return res.status(400).json({ error: "action required" });
 
@@ -875,6 +880,7 @@ app.listen(PORT, () => {
   console.log(`✅ Agent actions: categories | translate | articles | generate | fetch-article`);
   console.log(`                  publish-async | job-status | publish-history | suggest-topics`);
   if (AI_PROVIDER === "disabled") console.log(`⚠️  No AI key — add GROQ_API_KEY to enable generation and topic suggestions`);
+  console.log(`✅ Widget auth  : ${WIDGET_SECRET_ENABLED ? "secret protected" : "open (set WIDGET_SECRET to enable)"}`);
   console.log("");
 
   // Keep-alive: ping own /health every 14 min to prevent Render free tier cold starts
