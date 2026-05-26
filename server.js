@@ -8,7 +8,7 @@ const fs      = require("fs");
 const app  = express();
 const PORT = 3001;
 
-app.use(cors());
+app.use(cors({ origin: "*", allowedHeaders: ["Content-Type", "X-Widget-Secret"] }));
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
