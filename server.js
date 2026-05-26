@@ -12,11 +12,22 @@ app.use(cors());
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
-app.get("/", (_, res) => {
+const APP_PASSWORD = process.env.APP_PASSWORD || "";
+function basicAuth(req, res, next) {
+  if (!APP_PASSWORD) return next();
+  const auth = req.headers.authorization || "";
+  const [, encoded] = auth.split(" ");
+  const [, pass] = Buffer.from(encoded || "", "base64").toString().split(":");
+  if (pass === APP_PASSWORD) return next();
+  res.set("WWW-Authenticate", 'Basic realm="Community Publisher"');
+  res.status(401).send("Unauthorized");
+}
+
+app.get("/", basicAuth, (_, res) => {
   res.sendFile(path.join(__dirname, "app.html"));
 });
 
-app.get("/app", (_, res) => {
+app.get("/app", basicAuth, (_, res) => {
   res.sendFile(path.join(__dirname, "app.html"));
 });
 
