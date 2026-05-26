@@ -416,16 +416,24 @@ function splitHtmlChunks(html, maxLen = 4500) {
   return chunks;
 }
 
+async function googleTranslateChunk(chunk, langCode, attempt = 0) {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${langCode}&dt=t&q=${encodeURIComponent(chunk)}`;
+  const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  if (!r.ok) {
+    if (attempt === 0 && r.status >= 500) {
+      await new Promise(res => setTimeout(res, 1500));
+      return googleTranslateChunk(chunk, langCode, 1);
+    }
+    throw new Error(`Google Translate HTTP ${r.status}`);
+  }
+  const d = await r.json();
+  return (d[0] || []).map(c => c[0] || "").join("");
+}
+
 async function googleTranslate(text, langCode) {
   const isHtml = /<[^>]+>/.test(text);
   const chunks = isHtml ? splitHtmlChunks(text) : splitIntoChunks(text, 4500);
-  const results = await Promise.all(chunks.map(async (chunk) => {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${langCode}&dt=t&q=${encodeURIComponent(chunk)}`;
-    const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
-    if (!r.ok) throw new Error(`Google Translate HTTP ${r.status}`);
-    const d = await r.json();
-    return (d[0] || []).map(c => c[0] || "").join("");
-  }));
+  const results = await Promise.all(chunks.map(chunk => googleTranslateChunk(chunk, langCode)));
   return results.join(isHtml ? "" : " ");
 }
 
@@ -514,19 +522,23 @@ app.post("/widget", async (req, res) => {
     // ── categories ────────────────────────────────────────────────────────────
     // Pass lang= to get language-specific sections (e.g. lang=fr for French community)
     if (action === "categories") {
-      // inSided v2 /v2/categories has no language filter — returns all sections
-      // for the whole community (English, French, Spanish, etc. in one list).
       const token = await widgetToken();
-      const r     = await fetch(`${W_REGION}/v2/categories?page=1&pageSize=100`, { headers: { Authorization: `Bearer ${token}` } });
-      const data  = await r.json();
-      if (!r.ok) return res.status(r.status).json(data);
-      const list = Array.isArray(data) ? data
-        : Array.isArray(data.result) ? data.result
-        : Array.isArray(data.result?.items) ? data.result.items
-        : Array.isArray(data.items) ? data.items
-        : [];
-      console.log(`← categories: ${list.length} items`);
-      return res.json(list);
+      const allItems = [];
+      let page = 1;
+      while (true) {
+        const r    = await fetch(`${W_REGION}/v2/categories?page=${page}&pageSize=100`, { headers: { Authorization: `Bearer ${token}` } });
+        const data = await r.json();
+        if (!r.ok) return res.status(r.status).json(data);
+        const items = Array.isArray(data) ? data
+          : Array.isArray(data.result) ? data.result
+          : Array.isArray(data.result?.items) ? data.result.items
+          : Array.isArray(data.items) ? data.items : [];
+        allItems.push(...items);
+        if (items.length < 100) break;
+        page++;
+      }
+      console.log(`← categories: ${allItems.length} items (${page} page${page > 1 ? "s" : ""})`);
+      return res.json(allItems);
     }
 
     // ── translate — Google Translate (free, no key needed) ──────────────────
@@ -862,6 +874,12 @@ app.listen(PORT, () => {
   console.log(`✅ Publish log  : ${LOG_FILE}`);
   console.log(`✅ Agent actions: categories | translate | articles | generate | fetch-article`);
   console.log(`                  publish-async | job-status | publish-history | suggest-topics`);
-  if (AI_PROVIDER === "disabled") console.log(`⚠️  No AI key — add GEMINI_API_KEY or ANTHROPIC_API_KEY to enable generation and topic suggestions`);
+  if (AI_PROVIDER === "disabled") console.log(`⚠️  No AI key — add GROQ_API_KEY to enable generation and topic suggestions`);
   console.log("");
+
+  // Keep-alive: ping own /health every 14 min to prevent Render free tier cold starts
+  const selfUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+  setInterval(() => {
+    fetch(`${selfUrl}/health`).catch(() => {});
+  }, 14 * 60 * 1000);
 });
